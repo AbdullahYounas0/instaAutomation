@@ -39,6 +39,7 @@ frontend/coverage/
 
 # IDE
 .vscode/
+.github/
 .idea/
 *.swp
 *.swo
