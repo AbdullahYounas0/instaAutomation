@@ -144,6 +144,15 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
+# Install Playwright browsers
+print_status "Installing Playwright browsers..."
+python -m playwright install chromium
+if [ $? -eq 0 ]; then
+    print_success "Playwright browsers installed successfully"
+else
+    print_warning "Playwright browser installation failed, will attempt during runtime"
+fi
+
 # Create necessary directories
 mkdir -p logs uploads
 

@@ -625,7 +625,46 @@ async def warmup_worker(accounts, config, semaphore, log_callback=None, stop_cal
             except Exception as e:
                 if log_callback:
                     log_callback(f"Failed to launch browser for {current_username}: {e}")
-                continue
+                
+                # Check if it's a browser installation issue
+                if "Executable doesn't exist" in str(e) or "playwright install" in str(e).lower():
+                    if log_callback:
+                        log_callback(f"Browser not installed for {current_username}. Attempting to install browsers...")
+                    try:
+                        import subprocess
+                        result = subprocess.run(['playwright', 'install', 'chromium'], 
+                                              capture_output=True, text=True, timeout=300)
+                        if result.returncode == 0:
+                            if log_callback:
+                                log_callback(f"Browser installation completed for {current_username}. Retrying launch...")
+                            # Retry browser launch after installation
+                            playwright = await async_playwright().start()
+                            browser = await playwright.chromium.launch(
+                                headless=True,
+                                proxy=proxy_config,
+                                args=['--no-sandbox', '--disable-setuid-sandbox']
+                            )
+                            if log_callback:
+                                log_callback(f"Browser launched successfully for {current_username} after installation")
+                        else:
+                            if log_callback:
+                                log_callback(f"Browser installation failed for {current_username}: {result.stderr}")
+                            # Try system-level installation
+                            subprocess.run(['python', '-m', 'playwright', 'install', 'chromium'], timeout=300)
+                            playwright = await async_playwright().start()
+                            browser = await playwright.chromium.launch(
+                                headless=True,
+                                proxy=proxy_config,
+                                args=['--no-sandbox', '--disable-setuid-sandbox']
+                            )
+                            if log_callback:
+                                log_callback(f"Browser launched for {current_username} after system installation")
+                    except Exception as install_error:
+                        if log_callback:
+                            log_callback(f"Browser installation failed for {current_username}: {install_error}")
+                        continue
+                else:
+                    continue
 
             context = await browser.new_context()
             try:

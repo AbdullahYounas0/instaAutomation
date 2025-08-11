@@ -1833,17 +1833,60 @@ class InstagramDailyPostAutomation:
                     self.log(f"[Account {account_number}] ✅ Chromium browser launched successfully")
                 except Exception as chrome_error:
                     self.log(f"[Account {account_number}] ⚠️ Chromium launch failed: {chrome_error}")
-                    # Fallback to basic launch without extra features
-                    try:
-                        self.log(f"[Account {account_number}] 🔄 Attempting basic browser launch...")
-                        browser = await p.chromium.launch(
-                            headless=False,
-                            proxy=proxy_config
-                        )
-                        self.log(f"[Account {account_number}] ✅ Basic browser launched successfully")
-                    except Exception as basic_error:
-                        self.log(f"[Account {account_number}] ❌ All browser launch attempts failed: {basic_error}", "ERROR")
-                        return False
+                    
+                    # Check if it's a browser installation issue
+                    if "Executable doesn't exist" in str(chrome_error) or "playwright install" in str(chrome_error).lower():
+                        self.log(f"[Account {account_number}] 🔧 Browser not installed. Attempting to install browsers...")
+                        try:
+                            import subprocess
+                            result = subprocess.run(['playwright', 'install', 'chromium'], 
+                                                  capture_output=True, text=True, timeout=300)
+                            if result.returncode == 0:
+                                self.log(f"[Account {account_number}] ✅ Browser installation completed. Retrying launch...")
+                                # Retry browser launch after installation
+                                browser = await p.chromium.launch(
+                                    headless=False,
+                                    args=browser_args,
+                                    proxy=proxy_config,
+                                    slow_mo=100
+                                )
+                                self.log(f"[Account {account_number}] ✅ Chromium browser launched successfully after installation")
+                            else:
+                                self.log(f"[Account {account_number}] ❌ Browser installation failed: {result.stderr}", "ERROR")
+                                # Try system-level installation
+                                subprocess.run(['python', '-m', 'playwright', 'install', 'chromium'], timeout=300)
+                                browser = await p.chromium.launch(
+                                    headless=False,
+                                    args=browser_args,
+                                    proxy=proxy_config,
+                                    slow_mo=100
+                                )
+                                self.log(f"[Account {account_number}] ✅ Chromium browser launched after system installation")
+                        except Exception as install_error:
+                            self.log(f"[Account {account_number}] ❌ Browser installation failed: {install_error}", "ERROR")
+                            # Fallback to basic launch without extra features
+                            try:
+                                self.log(f"[Account {account_number}] 🔄 Attempting basic browser launch...")
+                                browser = await p.chromium.launch(
+                                    headless=False,
+                                    proxy=proxy_config
+                                )
+                                self.log(f"[Account {account_number}] ✅ Basic browser launched successfully")
+                            except Exception as basic_error:
+                                self.log(f"[Account {account_number}] ❌ All browser launch attempts failed: {basic_error}", "ERROR")
+                                return False
+                    else:
+                        # Fallback to basic launch without extra features
+                        try:
+                            self.log(f"[Account {account_number}] 🔄 Attempting basic browser launch...")
+                            browser = await p.chromium.launch(
+                                headless=False,
+                                proxy=proxy_config
+                            )
+                            self.log(f"[Account {account_number}] ✅ Basic browser launched successfully")
+                        except Exception as basic_error:
+                            self.log(f"[Account {account_number}] ❌ All browser launch attempts failed: {basic_error}", "ERROR")
+                            return False
                 
                 if not browser:
                     self.log(f"[Account {account_number}] ❌ Failed to launch browser", "ERROR")

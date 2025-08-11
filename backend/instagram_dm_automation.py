@@ -50,14 +50,32 @@ class DMAutomationEngine:
             deepseek_key = 'sk-0307c2f76e434a19aaef94e76c017fca'
             self.log("Using default DeepSeek API key for AI-powered message generation")
             
-            self.client = OpenAI(
-                api_key=deepseek_key,
-                base_url="https://api.deepseek.com"
-            )
-            self.log("DeepSeek AI client initialized successfully")
-            return True
+            # Try to initialize OpenAI client with minimal parameters
+            try:
+                self.client = OpenAI(
+                    api_key=deepseek_key,
+                    base_url="https://api.deepseek.com"
+                )
+                self.log("DeepSeek AI client initialized successfully")
+                return True
+            except TypeError as te:
+                # Handle version compatibility issues
+                if "unexpected keyword argument" in str(te):
+                    self.log(f"OpenAI client version compatibility issue: {te}", "WARNING")
+                    # Try with minimal parameters only
+                    self.client = OpenAI(api_key=deepseek_key)
+                    # Set base_url separately if supported
+                    if hasattr(self.client, 'base_url'):
+                        self.client.base_url = "https://api.deepseek.com"
+                    self.log("DeepSeek AI client initialized with compatibility mode")
+                    return True
+                else:
+                    raise te
+            
         except Exception as e:
             self.log(f"Failed to initialize AI client: {e}", "ERROR")
+            self.log("AI-powered message generation will be disabled", "WARNING")
+            self.client = None
             return False
     
     def get_account_proxy(self, username):
@@ -114,12 +132,47 @@ class DMAutomationEngine:
             viewport = {"width": 1920, "height": 1080}
             
             # Launch browser with stealth mode
-            browser = await playwright.chromium.launch(
-                headless=False,  # Show browser for localhost debugging
-                proxy=proxy_config,
-                args=browser_args + ['--start-maximized', '--disable-blink-features=AutomationControlled'],
-                slow_mo=1000  # Slow down actions for visibility
-            )
+            try:
+                browser = await playwright.chromium.launch(
+                    headless=False,  # Show browser for localhost debugging
+                    proxy=proxy_config,
+                    args=browser_args + ['--start-maximized', '--disable-blink-features=AutomationControlled'],
+                    slow_mo=1000  # Slow down actions for visibility
+                )
+            except Exception as browser_error:
+                self.log(f"⚠️ Browser launch failed: {browser_error}")
+                
+                # Check if it's a browser installation issue
+                if "Executable doesn't exist" in str(browser_error) or "playwright install" in str(browser_error).lower():
+                    self.log("🔧 Browser not installed. Attempting to install browsers...")
+                    try:
+                        import subprocess
+                        result = subprocess.run(['playwright', 'install', 'chromium'], 
+                                              capture_output=True, text=True, timeout=300)
+                        if result.returncode == 0:
+                            self.log("✅ Browser installation completed. Retrying launch...")
+                            # Retry browser launch after installation
+                            browser = await playwright.chromium.launch(
+                                headless=False,
+                                proxy=proxy_config,
+                                args=browser_args + ['--start-maximized', '--disable-blink-features=AutomationControlled'],
+                                slow_mo=1000
+                            )
+                        else:
+                            self.log(f"❌ Browser installation failed: {result.stderr}", "ERROR")
+                            # Try system-level installation
+                            subprocess.run(['python', '-m', 'playwright', 'install', 'chromium'], timeout=300)
+                            browser = await playwright.chromium.launch(
+                                headless=False,
+                                proxy=proxy_config,
+                                args=browser_args + ['--start-maximized', '--disable-blink-features=AutomationControlled'],
+                                slow_mo=1000
+                            )
+                    except Exception as install_error:
+                        self.log(f"❌ Browser installation failed: {install_error}", "ERROR")
+                        raise browser_error
+                else:
+                    raise browser_error
             
             context = await browser.new_context(
                 user_agent=user_agent,
@@ -321,6 +374,11 @@ Make it feel personal and not like spam."""
             bio = user_data.get('bio', '') or "your work"
             first_name = user_data.get('first_name', user_data.get('username', 'there'))
             
+            # Check if client is available
+            if not self.client:
+                self.log("AI client not available, using fallback message", "WARNING")
+                return f"Hey {first_name}, interested in VA services to help with your business tasks? Worth a chat?"
+            
             prompt = f"{prompt_template}\nUser data: city: {city}, bio: {bio}, first_name: {first_name}"
             
             response = self.client.chat.completions.create(
@@ -334,6 +392,7 @@ Make it feel personal and not like spam."""
         
         except Exception as e:
             self.log(f"Message generation failed: {e}", "WARNING")
+            first_name = user_data.get('first_name', user_data.get('username', 'there'))
             return f"Hey {first_name}, interested in VA services to help with your business tasks? Worth a chat?"
     
     async def handle_login_info_save_dialog(self, page, username):
