@@ -26,9 +26,10 @@ csv_lock = threading.Lock()
 used_proxies = set()
 
 class DMAutomationEngine:
-    def __init__(self, log_callback=None, stop_callback=None):
+    def __init__(self, log_callback=None, stop_callback=None, enable_ai=True):
         self.log_callback = log_callback or print
         self.stop_callback = stop_callback or (lambda: False)
+        self.enable_ai = enable_ai
         self.client = None
         self.sent_dms = []
         self.positive_responses = []
@@ -44,39 +45,48 @@ class DMAutomationEngine:
         pass  # No-op for headless mode
         
     def setup_openai_client(self):
-        """Setup OpenAI client for DeepSeek API"""
+        """Setup AI client for message generation"""
+        # Skip AI setup if disabled
+        if not self.enable_ai:
+            self.log("🚫 AI client disabled - using manual message templates only", "INFO")
+            self.client = None
+            return True
+            
         try:
-            # Always use the default API key
+            # Always use the default DeepSeek API key
             deepseek_key = 'sk-0307c2f76e434a19aaef94e76c017fca'
             self.log("Using default DeepSeek API key for AI-powered message generation")
             
-            # Try to initialize OpenAI client with minimal parameters
+            # Initialize OpenAI client with DeepSeek endpoint
             try:
+                # Use the simplest initialization possible
                 self.client = OpenAI(
                     api_key=deepseek_key,
                     base_url="https://api.deepseek.com"
                 )
-                self.log("DeepSeek AI client initialized successfully")
+                self.log("✅ DeepSeek AI client initialized successfully")
                 return True
-            except TypeError as te:
-                # Handle version compatibility issues
-                if "unexpected keyword argument" in str(te):
-                    self.log(f"OpenAI client version compatibility issue: {te}", "WARNING")
-                    # Try with minimal parameters only
+                
+            except Exception as init_error:
+                self.log(f"❌ OpenAI client initialization failed: {init_error}", "WARNING")
+                
+                # Try alternative initialization without base_url parameter
+                try:
                     self.client = OpenAI(api_key=deepseek_key)
-                    # Set base_url separately if supported
-                    if hasattr(self.client, 'base_url'):
-                        self.client.base_url = "https://api.deepseek.com"
-                    self.log("DeepSeek AI client initialized with compatibility mode")
+                    # Manually set the base URL after initialization
+                    self.client.base_url = "https://api.deepseek.com"
+                    self.log("✅ DeepSeek AI client initialized with fallback method")
                     return True
-                else:
-                    raise te
+                except Exception as fallback_error:
+                    self.log(f"❌ Fallback initialization also failed: {fallback_error}", "WARNING")
+                    raise fallback_error
             
         except Exception as e:
-            self.log(f"Failed to initialize AI client: {e}", "ERROR")
-            self.log("AI-powered message generation will be disabled", "WARNING")
+            self.log(f"❌ Failed to setup AI client: {e}", "ERROR")
+            self.log("⚠️ AI-powered message generation will be disabled", "WARNING")
+            self.log("ℹ️ The script will continue with manual message templates", "INFO")
             self.client = None
-            return False
+            return True  # Return True to allow script to continue
     
     def get_account_proxy(self, username):
         """Get the assigned proxy for an account"""
@@ -368,32 +378,62 @@ Make it feel personal and not like spam."""
         return default_prompt
     
     def generate_message(self, user_data, prompt_template):
-        """Generate personalized message using AI"""
+        """Generate personalized message using AI or fallback templates"""
         try:
             city = user_data.get('city', '') or "your area"
             bio = user_data.get('bio', '') or "your work"
             first_name = user_data.get('first_name', user_data.get('username', 'there'))
             
-            # Check if client is available
-            if not self.client:
-                self.log("AI client not available, using fallback message", "WARNING")
-                return f"Hey {first_name}, interested in VA services to help with your business tasks? Worth a chat?"
+            # Check if AI client is available and AI is enabled
+            if not self.client or not self.enable_ai:
+                self.log("Using template-based message generation", "INFO")
+                return self._generate_template_message(first_name, city, bio)
             
-            prompt = f"{prompt_template}\nUser data: city: {city}, bio: {bio}, first_name: {first_name}"
-            
-            response = self.client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": "Write personalized Instagram DMs. Keep under 500 characters."},
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            return response.choices[0].message.content.strip()
+            # Try AI-powered generation
+            try:
+                prompt = f"{prompt_template}\nUser data: city: {city}, bio: {bio}, first_name: {first_name}"
+                
+                response = self.client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[
+                        {"role": "system", "content": "Write personalized Instagram DMs. Keep under 500 characters."},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                message = response.choices[0].message.content.strip()
+                self.log("✅ AI-generated message created", "DEBUG")
+                return message
+                
+            except Exception as ai_error:
+                self.log(f"AI message generation failed: {ai_error}", "WARNING")
+                self.log("Falling back to template message", "INFO")
+                return self._generate_template_message(first_name, city, bio)
         
         except Exception as e:
-            self.log(f"Message generation failed: {e}", "WARNING")
+            self.log(f"Message generation error: {e}", "WARNING")
             first_name = user_data.get('first_name', user_data.get('username', 'there'))
-            return f"Hey {first_name}, interested in VA services to help with your business tasks? Worth a chat?"
+            return self._generate_template_message(first_name, "", "")
+    
+    def _generate_template_message(self, first_name, city, bio):
+        """Generate message using simple templates"""
+        templates = [
+            f"Hey {first_name}! Noticed your profile and thought you might be interested in professional VA services. Would love to connect!",
+            f"Hi {first_name}! I help business owners like yourself with virtual assistance. Interested in learning more?",
+            f"Hello {first_name}! Saw your profile and think we could help streamline your business operations. Worth a quick chat?",
+            f"Hey {first_name}! Virtual assistant services might be perfect for your business growth. Let's connect!",
+            f"Hi {first_name}! I specialize in helping entrepreneurs with admin tasks. Would you like to hear more?"
+        ]
+        
+        # Add location context if available
+        if city and city.lower() != "your area":
+            location_templates = [
+                f"Hey {first_name}! Fellow {city} entrepreneur here. I offer VA services that might interest you!",
+                f"Hi {first_name}! Connecting with business owners in {city}. I provide virtual assistance - let's chat!",
+                f"Hello {first_name}! Based in {city} too? I help local entrepreneurs with VA services. Interested?"
+            ]
+            templates.extend(location_templates)
+        
+        return random.choice(templates)
     
     async def handle_login_info_save_dialog(self, page, username):
         """Handle the 'Save your login info?' dialog by clicking 'Not now'"""
@@ -1577,11 +1617,12 @@ async def run_dm_automation(
     custom_prompt=None,
     dms_per_account=30,
     log_callback=None,
-    stop_callback=None
+    stop_callback=None,
+    enable_ai=False  # Default to False to avoid OpenAI issues
 ):
     """Main function to run DM automation"""
     
-    engine = DMAutomationEngine(log_callback, stop_callback)
+    engine = DMAutomationEngine(log_callback, stop_callback, enable_ai)
     
     try:
         engine.log("=== Instagram DM Automation Started ===")
@@ -1593,10 +1634,12 @@ async def run_dm_automation(
         engine.log("✅ Account should have been logged in recently from this IP/device")
         engine.log("")
         
-        # Setup AI client
-        if not engine.setup_openai_client():
-            engine.log("Failed to setup AI client", "ERROR")
-            return False
+        # Setup AI client (optional - script continues without it)
+        ai_client_ready = engine.setup_openai_client()
+        if ai_client_ready:
+            engine.log("✅ AI client ready for message generation", "INFO")
+        else:
+            engine.log("⚠️ AI client setup failed - continuing with manual templates", "WARNING")
         
         # Load data
         engine.log("Loading bot accounts...")
