@@ -409,6 +409,9 @@ class EnhancedInstagramAuth:
             # Wait for login form with better error handling and multiple selectors
             log("⏳ Waiting for login form to load...")
             
+            # First, check for and dismiss any blocking dialogs or overlays
+            await self._dismiss_blocking_elements(page, log)
+            
             login_form_selectors = [
                 'input[name="username"]',
                 'input[aria-label="Phone number, username, or email"]',
@@ -416,51 +419,107 @@ class EnhancedInstagramAuth:
                 '#loginForm input[name="username"]',
                 'form input[name="username"]',
                 'input[placeholder*="username"]',
-                'input[placeholder*="email"]'
+                'input[placeholder*="email"]',
+                'input[type="text"]',  # More generic fallback
+                'form input[type="text"]:first-child'  # Very generic fallback
             ]
             
             form_found = False
+            working_selector = None
+            
+            # First try to wait a bit and see if the page stabilizes
+            await self._human_delay(3000, 5000)
+            
             for i, selector in enumerate(login_form_selectors, 1):
                 try:
                     log(f"🎯 Trying login form selector {i}/{len(login_form_selectors)}: {selector}")
-                    await page.wait_for_selector(selector, state='visible', timeout=10000)
-                    log(f"✅ Login form detected with selector {i}")
-                    form_found = True
-                    break
+                    await page.wait_for_selector(selector, state='visible', timeout=8000)
+                    
+                    # Double check the element is actually a username field
+                    element = await page.query_selector(selector)
+                    if element:
+                        element_attrs = await element.evaluate('el => ({name: el.name, placeholder: el.placeholder, type: el.type, ariaLabel: el.ariaLabel})')
+                        log(f"✅ Found element with attributes: {element_attrs}")
+                        
+                        # Verify it's likely a username field
+                        attrs_str = str(element_attrs).lower()
+                        if any(keyword in attrs_str for keyword in ['username', 'email', 'phone']):
+                            log(f"✅ Login form detected with selector {i}")
+                            working_selector = selector
+                            form_found = True
+                            break
+                        else:
+                            log(f"⚠️ Element found but doesn't seem like username field: {element_attrs}")
+                    
                 except Exception as e:
                     log(f"⚠️ Form selector {i} failed: {str(e)[:100]}")
                     continue
             
             if not form_found:
+                # Take a screenshot for debugging
+                try:
+                    await page.screenshot(path=f"/tmp/login_debug_{username}.png")
+                    log("📸 Screenshot saved for debugging")
+                except:
+                    pass
+                
+                # Check page content for debugging
+                page_title = await page.title()
+                page_url = page.url
+                log(f"📄 Page title: {page_title}")
+                log(f"🔗 Page URL: {page_url}")
+                
                 # Check if we're still on Facebook or another wrong page
-                current_url = page.url
-                if "facebook.com" in current_url.lower():
+                if "facebook.com" in page_url.lower():
                     log("❌ Still on Facebook page, this indicates proxy/network issue")
-                elif "instagram.com" not in current_url.lower():
-                    log(f"❌ On wrong page: {current_url}")
+                elif "instagram.com" not in page_url.lower():
+                    log(f"❌ On wrong page: {page_url}")
                 else:
-                    log("❌ Login form not found on Instagram page")
+                    log("❌ Login form not found on Instagram page - checking for alternative layouts")
+                    
+                    # Try to find any input fields at all
+                    all_inputs = await page.query_selector_all('input')
+                    log(f"🔍 Found {len(all_inputs)} input fields on page")
+                    
+                    for idx, input_elem in enumerate(all_inputs[:5]):  # Check first 5 inputs
+                        try:
+                            attrs = await input_elem.evaluate('el => ({name: el.name, placeholder: el.placeholder, type: el.type, ariaLabel: el.ariaLabel, id: el.id})')
+                            log(f"Input {idx + 1}: {attrs}")
+                        except:
+                            pass
+                
                 return False, totp_secret
             
             log("✅ Login form is ready for input")
             
             log("⌨️ Entering login credentials...")
             
-            # Clear and enter username
-            username_field = await page.query_selector('input[name="username"]')
-            await username_field.click()
-            await username_field.fill('')  # Clear any existing text
-            await self._human_type(page, 'input[name="username"]', username)
-            log(f"✅ Entered username: {username}")
+            # Use the working selector we found
+            username_selector = working_selector or 'input[name="username"]'
+            
+            # Clear and enter username with better error handling
+            username_field = await page.query_selector(username_selector)
+            if username_field:
+                await username_field.click()
+                await username_field.fill('')  # Clear any existing text
+                await self._human_type(page, username_selector, username)
+                log(f"✅ Entered username: {username}")
+            else:
+                log("❌ Could not find username field with working selector")
+                return False, totp_secret
             
             await self._human_delay(500, 1000)
             
-            # Clear and enter password
+            # Clear and enter password with better error handling
             password_field = await page.query_selector('input[name="password"]')
-            await password_field.click()
-            await password_field.fill('')  # Clear any existing text
-            await self._human_type(page, 'input[name="password"]', password)
-            log("✅ Entered password")
+            if password_field:
+                await password_field.click()
+                await password_field.fill('')  # Clear any existing text
+                await self._human_type(page, 'input[name="password"]', password)
+                log("✅ Entered password")
+            else:
+                log("❌ Could not find password field")
+                return False, totp_secret
             
             await self._human_delay(1000, 2000)
             
@@ -874,6 +933,64 @@ class EnhancedInstagramAuth:
         except Exception as e:
             log(f"⚠️ Error handling initial dialogs: {e}")
             # Continue anyway as dialogs might not be present
+    
+    async def _dismiss_blocking_elements(self, page: Page, log: callable):
+        """Dismiss various blocking elements that might prevent login form access"""
+        try:
+            # List of selectors for blocking elements
+            blocking_selectors = [
+                # Cookie banners
+                'button:has-text("Allow all cookies")',
+                'button:has-text("Accept all")',
+                'button:has-text("Accept")',
+                'button:has-text("Allow All")',
+                '[data-testid="cookie-accept"]',
+                'button[aria-label="Allow all cookies"]',
+                
+                # Age verification and other dialogs
+                'button:has-text("Continue")',
+                'button:has-text("OK")',
+                'button:has-text("Got it")',
+                'button:has-text("Dismiss")',
+                'button:has-text("Not Now")',
+                'button:has-text("Later")',
+                'button[aria-label="Close"]',
+                '[data-testid="modal-close-button"]',
+                
+                # Instagram specific blocking elements
+                'button:has-text("Turn on Notifications")',
+                'button:has-text("Not now")',
+                'button[role="button"]:has-text("Not now")',
+                
+                # General modal closers
+                '.modal button',
+                '[role="dialog"] button',
+                '.dialog button'
+            ]
+            
+            dismissed_count = 0
+            for selector in blocking_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=2000)
+                    if element and await element.is_visible():
+                        await element.click()
+                        log(f"✅ Dismissed blocking element: {selector}")
+                        dismissed_count += 1
+                        await self._human_delay(1500, 2500)
+                        
+                        # Don't try to dismiss too many elements
+                        if dismissed_count >= 3:
+                            break
+                except:
+                    continue
+            
+            if dismissed_count > 0:
+                log(f"✅ Dismissed {dismissed_count} blocking elements")
+                await self._human_delay(2000, 3000)  # Wait for page to stabilize
+            
+        except Exception as e:
+            log(f"⚠️ Error dismissing blocking elements: {e}")
+            # Continue anyway as blocking elements might not be present
     
     async def _human_type(self, page: Page, selector: str, text: str):
         """Type text with human-like delays"""
