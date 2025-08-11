@@ -134,7 +134,7 @@ class DMAutomationEngine:
             # Launch browser with stealth mode
             try:
                 browser = await playwright.chromium.launch(
-                    headless=False,  # Show browser for localhost debugging
+                    headless=True,  # Use headless mode for VPS deployment
                     proxy=proxy_config,
                     args=browser_args + ['--start-maximized', '--disable-blink-features=AutomationControlled'],
                     slow_mo=1000  # Slow down actions for visibility
@@ -153,7 +153,7 @@ class DMAutomationEngine:
                             self.log("✅ Browser installation completed. Retrying launch...")
                             # Retry browser launch after installation
                             browser = await playwright.chromium.launch(
-                                headless=False,
+                                headless=True,  # Use headless mode for VPS
                                 proxy=proxy_config,
                                 args=browser_args + ['--start-maximized', '--disable-blink-features=AutomationControlled'],
                                 slow_mo=1000
@@ -163,7 +163,7 @@ class DMAutomationEngine:
                             # Try system-level installation
                             subprocess.run(['python', '-m', 'playwright', 'install', 'chromium'], timeout=300)
                             browser = await playwright.chromium.launch(
-                                headless=False,
+                                headless=True,  # Use headless mode for VPS
                                 proxy=proxy_config,
                                 args=browser_args + ['--start-maximized', '--disable-blink-features=AutomationControlled'],
                                 slow_mo=1000

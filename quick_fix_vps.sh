@@ -5,9 +5,13 @@
 
 echo "🔧 Quick Fix: Installing Playwright System Dependencies..."
 
-# Install system dependencies
+# Navigate to the backend directory and activate virtual environment
+cd /var/www/instaAutomation/backend
+source venv/bin/activate
+
+# Install system dependencies using Python module
 echo "Installing system dependencies..."
-sudo playwright install-deps
+python -m playwright install-deps
 
 # If that fails, install manually
 if [ $? -ne 0 ]; then
@@ -29,6 +33,9 @@ if [ $? -ne 0 ]; then
         libxss1 \
         libgtk-3-0 \
         libnss3 \
+        libxcursor1 \
+        libxi6 \
+        libxtst6 \
         fonts-liberation \
         xvfb
 fi

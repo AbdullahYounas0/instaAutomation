@@ -1825,7 +1825,7 @@ class InstagramDailyPostAutomation:
                     # Try Chromium first (more reliable)
                     self.log(f"[Account {account_number}] 🔧 Attempting to launch Chromium browser...")
                     browser = await p.chromium.launch(
-                        headless=False, # Show browser for debugging
+                        headless=True, # Use headless mode for VPS
                         args=browser_args,
                         proxy=proxy_config,
                         slow_mo=100 # Small delay for visibility
@@ -1845,7 +1845,7 @@ class InstagramDailyPostAutomation:
                                 self.log(f"[Account {account_number}] ✅ Browser installation completed. Retrying launch...")
                                 # Retry browser launch after installation
                                 browser = await p.chromium.launch(
-                                    headless=False,
+                                    headless=True, # Use headless mode for VPS
                                     args=browser_args,
                                     proxy=proxy_config,
                                     slow_mo=100
@@ -1856,7 +1856,7 @@ class InstagramDailyPostAutomation:
                                 # Try system-level installation
                                 subprocess.run(['python', '-m', 'playwright', 'install', 'chromium'], timeout=300)
                                 browser = await p.chromium.launch(
-                                    headless=False,
+                                    headless=True, # Use headless mode for VPS
                                     args=browser_args,
                                     proxy=proxy_config,
                                     slow_mo=100
@@ -1880,7 +1880,7 @@ class InstagramDailyPostAutomation:
                         try:
                             self.log(f"[Account {account_number}] 🔄 Attempting basic browser launch...")
                             browser = await p.chromium.launch(
-                                headless=False,
+                                headless=True, # Use headless mode for VPS
                                 proxy=proxy_config
                             )
                             self.log(f"[Account {account_number}] ✅ Basic browser launched successfully")

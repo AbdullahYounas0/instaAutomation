@@ -17,15 +17,19 @@ If you're seeing the Playwright system dependencies error, run this immediately:
 # SSH into your VPS
 ssh user@your-vps-ip
 
+# Navigate to backend and activate virtual environment
+cd /var/www/instaAutomation/backend
+source venv/bin/activate
+
 # Install system dependencies
-sudo playwright install-deps
+python -m playwright install-deps
 
 # Or manually install required packages
 sudo apt-get update && sudo apt-get install -y \
     libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 \
     libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
     libpango-1.0-0 libcairo2 libasound2 libxss1 libgtk-3-0 \
-    libnss3 fonts-liberation xvfb
+    libnss3 libxcursor1 libxi6 libxtst6 fonts-liberation xvfb
 
 # Restart your services
 pm2 restart all
