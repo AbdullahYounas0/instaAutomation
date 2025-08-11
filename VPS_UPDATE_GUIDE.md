@@ -4,24 +4,57 @@
 
 The latest code includes critical fixes for:
 - ✅ Automatic Playwright browser installation
+- ✅ System dependencies installation for headless browsers
 - ✅ Enhanced OpenAI client compatibility  
 - ✅ Better error handling for production environment
 - ✅ Fallback mechanisms for failed services
 
-## Option 1: Automated Update (Recommended)
+## 🔧 Quick Fix for Current Issue
 
-### Step 1: Upload the update script to your VPS
+If you're seeing the Playwright system dependencies error, run this immediately:
+
 ```bash
-# On your local machine, upload the script
-scp vps_update.sh user@your-vps-ip:/tmp/
+# SSH into your VPS
+ssh user@your-vps-ip
+
+# Install system dependencies
+sudo playwright install-deps
+
+# Or manually install required packages
+sudo apt-get update && sudo apt-get install -y \
+    libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 \
+    libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+    libpango-1.0-0 libcairo2 libasound2 libxss1 libgtk-3-0 \
+    libnss3 fonts-liberation xvfb
+
+# Restart your services
+pm2 restart all
 ```
 
-### Step 2: Run the update script on your VPS
+## Option 1: Automated Update (Recommended)
+
+### Step 1: Upload the system dependencies fix script
+```bash
+# On your local machine, upload the fix script
+scp fix_vps_dependencies.sh user@your-vps-ip:/tmp/
+```
+
+### Step 2: Run the system dependencies fix
 ```bash
 # SSH into your VPS
 ssh user@your-vps-ip
 
 # Make the script executable and run it
+chmod +x /tmp/fix_vps_dependencies.sh
+sudo /tmp/fix_vps_dependencies.sh
+```
+
+### Step 3: Update the application code
+```bash
+# Upload the main update script
+scp vps_update.sh user@your-vps-ip:/tmp/
+
+# Run the update script
 chmod +x /tmp/vps_update.sh
 sudo /tmp/vps_update.sh
 ```
@@ -54,9 +87,20 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### Step 5: Install Playwright browsers
+### Step 5: Install Playwright browsers and system dependencies
 ```bash
+cd /var/www/instaAutomation/backend
+source venv/bin/activate
 python -m playwright install chromium
+sudo playwright install-deps
+
+# If the above fails, install manually:
+sudo apt-get update && sudo apt-get install -y \
+    libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 \
+    libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+    libpango-1.0-0 libcairo2 libasound2 libxss1 libgtk-3-0 \
+    libnss3 fonts-liberation xvfb
+
 python ../install_browsers.py
 ```
 

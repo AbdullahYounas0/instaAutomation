@@ -144,13 +144,34 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Install Playwright browsers
-print_status "Installing Playwright browsers..."
+# Install Playwright browsers and system dependencies
+print_status "Installing Playwright browsers and system dependencies..."
 python -m playwright install chromium
+sudo playwright install-deps
 if [ $? -eq 0 ]; then
-    print_success "Playwright browsers installed successfully"
+    print_success "Playwright browsers and system dependencies installed successfully"
 else
-    print_warning "Playwright browser installation failed, will attempt during runtime"
+    print_warning "Installing system dependencies manually..."
+    sudo apt-get update
+    sudo apt-get install -y \
+        libatk1.0-0 \
+        libatk-bridge2.0-0 \
+        libcups2 \
+        libatspi2.0-0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxrandr2 \
+        libgbm1 \
+        libpango-1.0-0 \
+        libcairo2 \
+        libasound2 \
+        libxss1 \
+        libgtk-3-0 \
+        libnss3 \
+        fonts-liberation \
+        xvfb
+    print_success "System dependencies installation completed"
 fi
 
 # Create necessary directories

@@ -59,12 +59,41 @@ pip install --upgrade pip
 pip install -r requirements.txt
 print_success "Python dependencies updated"
 
-print_status "Step 5: Installing Playwright browsers..."
+print_status "Step 5: Installing Playwright browsers and system dependencies..."
 python -m playwright install chromium
 if [ $? -eq 0 ]; then
     print_success "Playwright browsers installed successfully"
 else
     print_warning "Playwright browser installation failed, will attempt during runtime"
+fi
+
+# Install system dependencies
+print_status "Installing Playwright system dependencies..."
+sudo playwright install-deps
+if [ $? -eq 0 ]; then
+    print_success "Playwright system dependencies installed successfully"
+else
+    print_warning "Playwright system dependencies installation failed, installing manually..."
+    sudo apt-get update
+    sudo apt-get install -y \
+        libatk1.0-0 \
+        libatk-bridge2.0-0 \
+        libcups2 \
+        libatspi2.0-0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxrandr2 \
+        libgbm1 \
+        libpango-1.0-0 \
+        libcairo2 \
+        libasound2 \
+        libxss1 \
+        libgtk-3-0 \
+        libnss3 \
+        fonts-liberation \
+        xvfb
+    print_success "Manual system dependencies installation completed"
 fi
 
 print_status "Step 6: Testing browser installation..."
