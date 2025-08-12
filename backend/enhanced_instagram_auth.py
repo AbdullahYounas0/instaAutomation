@@ -611,7 +611,29 @@ class EnhancedInstagramAuth:
             for attempt in range(max_attempts):
                 try:
                     current_url = page.url
-                    log(f"🔍 Current URL (attempt {attempt + 1}/{max_attempts}): {current_url[:100]}...")
+                    log(f"🔍 Current URL (attempt {attempt + 1}/{max_attempts}): {current_url}")
+                    log(f"📄 Page title: {await page.title()}")
+                    
+                    # Check for account suspension first
+                    if "suspended" in current_url.lower():
+                        log("🚫 Account is suspended - cannot proceed")
+                        return False, totp_secret
+                    
+                    # Check for Facebook redirect (blocking didn't work)
+                    if "facebook.com" in current_url or "fb.com" in current_url:
+                        log("⚠️ Facebook redirect detected - Instagram may be linking accounts")
+                        log("🔄 Attempting to navigate back to Instagram...")
+                        try:
+                            await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=30000)
+                            await self._human_delay(3000, 5000)
+                            current_url = page.url
+                            log(f"🔍 After redirect fix, current URL: {current_url}")
+                            if "facebook.com" in current_url:
+                                log("❌ Persistent Facebook redirect - account may be linked to Facebook")
+                                return False, totp_secret
+                        except Exception as e:
+                            log(f"❌ Failed to navigate back from Facebook: {e}")
+                            return False, totp_secret
                     
                     # Check for various scenarios
                     log("🔍 Checking if login successful...")
@@ -656,7 +678,7 @@ class EnhancedInstagramAuth:
             
             log("❌ Login failed after all attempts")
             return False, totp_secret
-            
+        
         except Exception as e:
             log(f"❌ Error during credential authentication: {e}", "ERROR")
             return False, ""
@@ -825,28 +847,57 @@ class EnhancedInstagramAuth:
             
             await self._human_delay(1000, 2000)
             
-            # Find 2FA input field
+            # Find 2FA input field with more comprehensive selectors
             totp_selectors = [
                 'input[name="verificationCode"]',
                 'input[name="security_code"]',
                 'input[aria-label*="security code"]',
+                'input[aria-label*="Security code"]',
+                'input[aria-label*="verification code"]',
+                'input[aria-label*="Verification code"]',
                 'input[placeholder*="security code"]',
+                'input[placeholder*="Security code"]',
                 'input[placeholder*="verification code"]',
-                'input[type="text"][maxlength="6"]'
+                'input[placeholder*="Verification code"]',
+                'input[placeholder*="6-digit code"]',
+                'input[placeholder*="Enter the 6-digit code"]',
+                'input[type="text"][maxlength="6"]',
+                'input[type="text"][pattern="[0-9]*"]',
+                'input[autocomplete="one-time-code"]',
+                'input[data-testid="confirmation-code-input"]',
+                'form input[type="text"]:only-of-type',
+                '#react-root input[type="text"]'
             ]
             
             totp_input = None
-            for selector in totp_selectors:
+            for i, selector in enumerate(totp_selectors, 1):
                 try:
-                    totp_input = await page.wait_for_selector(selector, timeout=5000)
-                    if totp_input:
-                        log(f"📱 Found 2FA input field")
+                    log(f"🎯 Trying 2FA selector {i}/{len(totp_selectors)}: {selector}")
+                    totp_input = await page.wait_for_selector(selector, timeout=8000)
+                    if totp_input and await totp_input.is_visible():
+                        log(f"📱 Found 2FA input field with selector {i}")
                         break
-                except:
+                    else:
+                        totp_input = None
+                except Exception as e:
+                    log(f"⚠️ 2FA selector {i} failed: {str(e)[:80]}")
                     continue
             
             if not totp_input:
-                log("❌ Could not find 2FA input field")
+                log("❌ Could not find 2FA input field after trying all selectors")
+                log(f"📍 Current URL: {page.url}")
+                log(f"📄 Page title: {await page.title()}")
+                
+                # Debug: List all input fields on the page
+                all_inputs = await page.query_selector_all('input')
+                log(f"🔍 Found {len(all_inputs)} input fields on page for 2FA debugging:")
+                for idx, input_elem in enumerate(all_inputs[:10]):  # Check first 10 inputs
+                    try:
+                        attrs = await input_elem.evaluate('el => ({name: el.name, placeholder: el.placeholder, type: el.type, ariaLabel: el.ariaLabel, id: el.id, visible: el.offsetParent !== null, maxLength: el.maxLength})')
+                        log(f"Input {idx + 1}: {attrs}")
+                    except:
+                        pass
+                
                 return False
             
             # Enter TOTP code
