@@ -21,9 +21,9 @@ class InstagramCookieManager:
         self.cookies_dir = Path("instagram_cookies")
         self.cookies_dir.mkdir(exist_ok=True)
         
-        # Cookie expiration settings
+        # Cookie expiration settings (more lenient for VPS environment)
         self.cookie_expiry_days = 30
-        self.session_timeout_hours = 24
+        self.session_timeout_hours = 72  # Extended session timeout for VPS
     
     def _get_cookie_file_path(self, username: str) -> Path:
         """Get the cookie file path for a username"""
@@ -138,9 +138,24 @@ class InstagramCookieManager:
                 self.delete_cookies(username)
                 return None
             
-            # Update last used timestamp
+            # Update last used timestamp without causing recursion
             cookie_data['last_used'] = datetime.now().isoformat()
-            self.save_cookies(username, cookie_data['cookies'], cookie_data.get('proxy_info'))
+            
+            # Save the updated timestamp directly without calling save_cookies to avoid recursion
+            try:
+                encrypted_data = self._encrypt_cookie_data(cookie_data)
+                if encrypted_data:
+                    with open(cookie_file, 'w', encoding='utf-8') as f:
+                        json.dump({
+                            'encrypted_data': encrypted_data,
+                            'metadata': {
+                                'username': username.lower(),
+                                'created_at': datetime.now().isoformat(),
+                                'version': '1.0'
+                            }
+                        }, f, indent=2)
+            except Exception as e:
+                logger.error(f"Error updating last used timestamp for {username}: {e}")
             
             logger.info(f"Cookies loaded for {username}")
             return cookie_data
@@ -163,11 +178,19 @@ class InstagramCookieManager:
         if not cookie_data:
             return False
         
-        # Check session expiration
+        # Check session expiration (be more lenient for VPS)
         session_expires_at = datetime.fromisoformat(cookie_data.get('session_expires_at', ''))
-        if datetime.now() > session_expires_at:
-            logger.info(f"Session expired for {username}")
+        current_time = datetime.now()
+        
+        # If session is "expired" but within a grace period, still try to use it
+        grace_period_hours = 48  # Additional grace period for VPS
+        grace_expiry = session_expires_at + timedelta(hours=grace_period_hours)
+        
+        if current_time > grace_expiry:
+            logger.info(f"Session expired beyond grace period for {username}")
             return False
+        elif current_time > session_expires_at:
+            logger.info(f"Session expired but within grace period for {username}, will attempt to use")
         
         # Check if cookies list is not empty and has essential cookies
         cookies = cookie_data.get('cookies', [])

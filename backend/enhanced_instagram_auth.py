@@ -172,7 +172,7 @@ class EnhancedInstagramAuth:
             
             log("🛡️ Applied anti-detection and anti-redirect measures")
             
-            # Step 3: Try cookie-based authentication first
+            # Step 3: Try cookie-based authentication first (with extended session timeout)
             log("🍪 Checking for existing cookies...")
             if cookie_manager.are_cookies_valid(username):
                 log("✅ Valid cookies found, attempting cookie-based login...")
@@ -190,7 +190,14 @@ class EnhancedInstagramAuth:
                     # Clean up invalid cookies
                     cookie_manager.delete_cookies(username)
             else:
-                log("ℹ️ No valid cookies found, proceeding with credential login...")
+                # Check if cookies exist but are expired 
+                cookie_data = cookie_manager.load_cookies(username)
+                if cookie_data:
+                    log("⚠️ Cookies exist but appear to be expired or invalid, will attempt to refresh...")
+                    # Clean up expired cookies
+                    cookie_manager.delete_cookies(username)
+                else:
+                    log("ℹ️ No valid cookies found, proceeding with credential login...")
             
             # Step 4: Credential-based authentication with 2FA
             if not password:
@@ -412,6 +419,9 @@ class EnhancedInstagramAuth:
             # First, check for and dismiss any blocking dialogs or overlays
             await self._dismiss_blocking_elements(page, log)
             
+            # Wait longer for Instagram's dynamic content to load
+            await self._human_delay(5000, 8000)
+            
             login_form_selectors = [
                 'input[name="username"]',
                 'input[aria-label="Phone number, username, or email"]',
@@ -456,14 +466,7 @@ class EnhancedInstagramAuth:
                     continue
             
             if not form_found:
-                # Take a screenshot for debugging
-                try:
-                    await page.screenshot(path=f"/tmp/login_debug_{username}.png")
-                    log("📸 Screenshot saved for debugging")
-                except:
-                    pass
-                
-                # Check page content for debugging
+                # Log debugging info without screenshot for VPS
                 page_title = await page.title()
                 page_url = page.url
                 log(f"📄 Page title: {page_title}")
@@ -508,17 +511,65 @@ class EnhancedInstagramAuth:
                 log("❌ Could not find username field with working selector")
                 return False, totp_secret
             
-            await self._human_delay(500, 1000)
+            await self._human_delay(800, 1500)
             
-            # Clear and enter password with better error handling
-            password_field = await page.query_selector('input[name="password"]')
-            if password_field:
-                await password_field.click()
-                await password_field.fill('')  # Clear any existing text
-                await self._human_type(page, 'input[name="password"]', password)
-                log("✅ Entered password")
-            else:
-                log("❌ Could not find password field")
+            # Wait a bit longer for the page to fully load the password field
+            await self._human_delay(1000, 2000)
+            
+            # Find and enter password with multiple selectors
+            password_selectors = [
+                'input[name="password"]',
+                'input[type="password"]',
+                'input[aria-label="Password"]',
+                'input[placeholder*="password"]',
+                'input[placeholder*="Password"]',
+                '#loginForm input[type="password"]',
+                'form input[type="password"]',
+                'input[autocomplete="current-password"]',
+                'input[autocomplete="password"]'
+            ]
+            
+            password_entered = False
+            # Try multiple times with increasing waits
+            for attempt in range(3):
+                if password_entered:
+                    break
+                    
+                for i, pass_selector in enumerate(password_selectors, 1):
+                    try:
+                        log(f"🎯 Trying password selector {i}/{len(password_selectors)} (attempt {attempt + 1}): {pass_selector}")
+                        
+                        # Wait for password field to appear
+                        password_field = await page.wait_for_selector(pass_selector, state='visible', timeout=5000)
+                        if password_field:
+                            await password_field.click()
+                            await self._human_delay(300, 600)  # Wait after click
+                            await password_field.fill('')  # Clear any existing text
+                            await self._human_type(page, pass_selector, password)
+                            log("✅ Entered password")
+                            password_entered = True
+                            break
+                    except Exception as e:
+                        log(f"⚠️ Password selector {i} failed: {str(e)[:100]}")
+                        continue
+                
+                if not password_entered and attempt < 2:
+                    log(f"⏳ Password field not found on attempt {attempt + 1}, waiting longer...")
+                    await self._human_delay(2000, 4000)
+            
+            if not password_entered:
+                log("❌ Could not find password field after all attempts")
+                
+                # Debug: List all input fields on the page
+                all_inputs = await page.query_selector_all('input')
+                log(f"🔍 Found {len(all_inputs)} input fields on page for debugging:")
+                for idx, input_elem in enumerate(all_inputs[:8]):  # Check first 8 inputs
+                    try:
+                        attrs = await input_elem.evaluate('el => ({name: el.name, placeholder: el.placeholder, type: el.type, ariaLabel: el.ariaLabel, id: el.id, visible: el.offsetParent !== null})')
+                        log(f"Input {idx + 1}: {attrs}")
+                    except:
+                        pass
+                        
                 return False, totp_secret
             
             await self._human_delay(1000, 2000)

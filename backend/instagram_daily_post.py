@@ -1868,7 +1868,7 @@ class InstagramDailyPostAutomation:
                             try:
                                 self.log(f"[Account {account_number}] 🔄 Attempting basic browser launch...")
                                 browser = await p.chromium.launch(
-                                    headless=False,
+                                    headless=True,  # Use headless mode for VPS
                                     proxy=proxy_config
                                 )
                                 self.log(f"[Account {account_number}] ✅ Basic browser launched successfully")
