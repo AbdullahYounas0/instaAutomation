@@ -637,8 +637,22 @@ class EnhancedInstagramAuth:
                     
                     # Check for various scenarios
                     log("🔍 Checking if login successful...")
-                    if await self._is_logged_in(page):
-                        log("✅ Login successful!")
+                    
+                    # Give more time for login success detection
+                    login_check_attempts = 3
+                    login_successful = False
+                    
+                    for check_attempt in range(login_check_attempts):
+                        if await self._is_logged_in(page):
+                            log("✅ Login successful!")
+                            login_successful = True
+                            break
+                        
+                        if check_attempt < login_check_attempts - 1:
+                            log(f"🔄 Login check {check_attempt + 1}/{login_check_attempts} - waiting for page to fully load...")
+                            await self._human_delay(5000, 8000)  # Wait longer between checks
+                    
+                    if login_successful:
                         return True, totp_secret
                     
                     log("🔍 Checking if 2FA required...")
@@ -720,27 +734,73 @@ class EnhancedInstagramAuth:
             # First, handle "Save login info" dialog if present
             await self._handle_save_login_info_dialog(page)
             
-            # Look for indicators that we're logged in
-            login_indicators = [
-                "nav[aria-label='Primary navigation']",
-                "[aria-label='Home']",
-                "svg[aria-label='Home']",
-                "a[href='/']",
-                "[data-testid='home-icon']",
-                "div[role='main'] nav"
-            ]
-            
-            for indicator in login_indicators:
-                element = await page.query_selector(indicator)
-                if element:
-                    # Additional check to make sure we're not on a login-related page
-                    current_url = page.url
-                    if not any(keyword in current_url.lower() for keyword in ['login', 'signup', 'accounts/emailsignup']):
+            # Check current URL - if we're on main Instagram page, it's a good sign
+            current_url = page.url.lower()
+            if current_url == "https://www.instagram.com/" or current_url == "https://www.instagram.com":
+                # We're on the main page, let's do additional checks
+                
+                # Check if we're NOT on a login page
+                if not any(keyword in current_url for keyword in ['login', 'signup', 'accounts/emailsignup', 'accounts/login']):
+                    
+                    # Try to find any indication we're logged in
+                    # Look for indicators that we're logged in (with longer timeout)
+                    login_indicators = [
+                        "nav[aria-label='Primary navigation']",
+                        "[aria-label='Home']", 
+                        "svg[aria-label='Home']",
+                        "a[href='/']",
+                        "[data-testid='home-icon']",
+                        "div[role='main'] nav",
+                        "button[aria-label*='Profile']",
+                        "img[alt*='profile picture']",
+                        "svg[aria-label*='New post']",
+                        "svg[aria-label*='Search']",
+                        "svg[aria-label*='Notifications']",
+                        "nav",  # Any navigation element
+                        "main",  # Main content area
+                        "[role='main']",
+                        "header",
+                        "div[class*='_ac0a']",  # Common Instagram classes
+                        "section",  # Instagram uses sections for layout
+                    ]
+                    
+                    # Wait a bit for page to fully load
+                    await self._human_delay(3000, 5000)
+                    
+                    for indicator in login_indicators:
+                        try:
+                            element = await page.wait_for_selector(indicator, timeout=5000)
+                            if element and await element.is_visible():
+                                return True
+                        except:
+                            continue
+                    
+                    # If no specific indicators found, check page content
+                    page_content = await page.content()
+                    content_indicators = [
+                        'instagram.com' in page_content.lower(),
+                        len(page_content) > 10000,  # Page has substantial content
+                        'json' in page_content.lower(),  # Instagram pages have JSON data
+                        'window._sharedData' in page_content,  # Instagram's shared data
+                        '"authenticated":true' in page_content,  # Explicit auth indicator
+                        'nav' in page_content.lower(),  # Navigation elements
+                        'main' in page_content.lower(),  # Main content
+                    ]
+                    
+                    # If at least 3 indicators are present, consider it logged in
+                    if sum(content_indicators) >= 3:
                         return True
+            
+            # Also check if URL indicates successful login
+            if any(success_url in current_url for success_url in ['instagram.com/', 'instagram.com/accounts/onetap']):
+                if not any(fail_url in current_url for fail_url in ['login', 'signup', 'challenge']):
+                    return True
             
             return False
             
-        except Exception:
+        except Exception as e:
+            # Log the exception for debugging
+            print(f"Debug: _is_logged_in exception: {e}")
             return False
     
     async def _handle_save_login_info_dialog(self, page: Page):
