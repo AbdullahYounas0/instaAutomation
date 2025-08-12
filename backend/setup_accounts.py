@@ -51,6 +51,11 @@ def setup_test_account():
     print("If your Instagram account has 2FA enabled with authenticator app:")
     totp_secret = input("TOTP Secret Key (optional): ").strip()
     
+    # Clean TOTP secret - remove spaces and convert to uppercase
+    if totp_secret:
+        totp_secret = totp_secret.replace(' ', '').replace('-', '').upper()
+        print(f"   🔧 Cleaned TOTP secret: {totp_secret}")
+    
     notes = input("Notes (optional): ").strip()
     
     try:

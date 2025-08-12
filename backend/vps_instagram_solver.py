@@ -57,7 +57,6 @@ class VPSInstagramSolver:
             '--use-fake-device-for-media-stream',
             '--disable-extensions',
             '--disable-plugins',
-            '--user-data-dir=/tmp/chrome-user-data',
             '--disable-dev-tools',
             '--no-zygote',
             '--single-process',
