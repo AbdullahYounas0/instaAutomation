@@ -70,13 +70,21 @@ async def test_instagram_page_load():
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu'
+                '--disable-gpu',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-web-security',
+                '--allow-running-insecure-content',
+                '--disable-features=VizDisplayCompositor',
             ]
         )
         
         context = await browser.new_context(
             viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            extra_http_headers={
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            }
         )
         
         page = await context.new_page()
@@ -87,12 +95,31 @@ async def test_instagram_page_load():
             await page.route("**fb.com**", lambda route: route.abort())
             print("🚫 Blocked Facebook domains")
             
+            # Test basic connectivity first
+            print("🌐 Testing basic connectivity...")
+            try:
+                await page.goto("https://httpbin.org/ip", timeout=30000)
+                ip_response = await page.content()
+                print(f"✅ VPS IP check successful: {ip_response[:100]}...")
+            except Exception as e:
+                print(f"❌ Basic connectivity failed: {e}")
+                return False
+            
+            # Now try Instagram
             print("🌐 Navigating to Instagram...")
-            await page.goto("https://www.instagram.com/accounts/login/", 
-                           wait_until='domcontentloaded', timeout=60000)
+            try:
+                response = await page.goto("https://www.instagram.com/accounts/login/", 
+                                         wait_until='networkidle', timeout=60000)
+                
+                print(f"📊 Response status: {response.status}")
+                print(f"📊 Response headers: {dict(response.headers)}")
+                
+            except Exception as e:
+                print(f"❌ Navigation to Instagram failed: {e}")
+                return False
             
             # Wait for page to stabilize
-            await asyncio.sleep(5)
+            await asyncio.sleep(10)
             
             # Check current URL
             current_url = page.url
@@ -101,6 +128,11 @@ async def test_instagram_page_load():
             # Check page title
             title = await page.title()
             print(f"📄 Page title: {title}")
+            
+            # Get full page content for analysis
+            page_content = await page.content()
+            content_length = len(page_content)
+            print(f"📊 Page content length: {content_length} characters")
             
             # Check if we're on the right page
             if "instagram.com" not in current_url.lower():
@@ -111,18 +143,65 @@ async def test_instagram_page_load():
                 print("❌ Redirected to Facebook - this indicates network/proxy issues")
                 return False
             
+            # Check for common blocking indicators
+            blocking_keywords = [
+                "blocked", "suspended", "unavailable", "access denied", 
+                "forbidden", "not available", "error", "cloudflare"
+            ]
+            
+            page_content_lower = page_content.lower()
+            for keyword in blocking_keywords:
+                if keyword in page_content_lower:
+                    print(f"⚠️ Potential blocking detected: found '{keyword}' in page content")
+            
+            # Save page content for debugging
+            try:
+                with open('instagram_page_debug.html', 'w', encoding='utf-8') as f:
+                    f.write(page_content)
+                print("💾 Page content saved to instagram_page_debug.html")
+            except Exception as e:
+                print(f"⚠️ Could not save debug file: {e}")
+            
+            # Check if page is mostly empty
+            if content_length < 1000:
+                print("❌ Page content is suspiciously small - likely blocked or failed to load")
+                print(f"📊 Content preview: {page_content[:500]}...")
+                return False
+            
+            # Check for Instagram-specific content
+            instagram_indicators = [
+                "instagram" in page_content_lower,
+                "log in" in page_content_lower,
+                "username" in page_content_lower,
+                "password" in page_content_lower,
+                "_sharedData" in page_content,  # Instagram's JS data
+                "www.instagram.com" in page_content,
+            ]
+            
+            print(f"📊 Instagram content indicators:")
+            indicators_passed = 0
+            for i, indicator in enumerate(["Instagram", "Log in", "Username", "Password", "SharedData", "Instagram URL"]):
+                status = "✅" if instagram_indicators[i] else "❌"
+                print(f"  {indicator}: {status}")
+                if instagram_indicators[i]:
+                    indicators_passed += 1
+            
+            if indicators_passed < 2:
+                print("❌ Page doesn't appear to be Instagram login page")
+                return False
+            
             # Handle potential blocking dialogs
-            blocking_dialogs = [
+            dialog_selectors = [
                 'button:has-text("Allow all cookies")',
                 'button:has-text("Accept all cookies")',
                 'button:has-text("Accept")',
                 'button:has-text("OK")',
                 'button:has-text("Continue")',
-                'button:has-text("Allow")',
-                '[aria-label="Close"]'
+                '[aria-label="Close"]',
+                '[role="button"]:has-text("Allow")',
             ]
             
-            for selector in blocking_dialogs:
+            for selector in dialog_selectors:
                 try:
                     element = await page.wait_for_selector(selector, timeout=3000)
                     if element and await element.is_visible():
@@ -133,41 +212,62 @@ async def test_instagram_page_load():
                 except:
                     continue
             
-            # Wait longer for Instagram to load its dynamic content
-            print("⏳ Waiting for Instagram content to load...")
+            # Wait longer for dynamic content
+            print("⏳ Waiting for dynamic content to load...")
             await asyncio.sleep(10)
             
-            # Check for login form elements
+            # Enhanced input field detection
             print("🔍 Looking for login form elements...")
             
-            # Check for any input fields
-            all_inputs = await page.query_selector_all('input')
-            print(f"📊 Found {len(all_inputs)} input fields total")
+            # Try multiple selectors for input fields
+            input_selectors = [
+                'input',
+                'input[type="text"]',
+                'input[type="password"]',
+                'input[name="username"]',
+                'input[name="password"]',
+                'input[aria-label*="username"]',
+                'input[aria-label*="Password"]',
+                'input[placeholder*="username"]',
+                'input[placeholder*="Password"]',
+                'form input',
+                '[role="textbox"]'
+            ]
+            
+            all_inputs = []
+            for selector in input_selectors:
+                try:
+                    inputs = await page.query_selector_all(selector)
+                    for inp in inputs:
+                        if inp not in all_inputs:
+                            all_inputs.append(inp)
+                except:
+                    continue
+            
+            print(f"📊 Total input fields found: {len(all_inputs)}")
             
             if len(all_inputs) == 0:
-                # Try to get page content for debugging
-                print("🔍 No input fields found. Checking page content...")
-                page_content = await page.content()
+                print("❌ No input fields found - Instagram page may not have loaded properly")
                 
-                # Check if page contains Instagram login indicators
-                content_checks = [
-                    "Log in" in page_content,
-                    "Instagram" in page_content,
-                    "password" in page_content.lower(),
-                    "username" in page_content.lower(),
-                    "login" in page_content.lower()
-                ]
+                # Try to detect what went wrong
+                print("🔍 Diagnostic checks:")
                 
-                print(f"📊 Content analysis:")
-                print(f"  Contains 'Log in': {content_checks[0]}")
-                print(f"  Contains 'Instagram': {content_checks[1]}")
-                print(f"  Contains 'password': {content_checks[2]}")
-                print(f"  Contains 'username': {content_checks[3]}")
-                print(f"  Contains 'login': {content_checks[4]}")
+                # Check for JavaScript errors
+                try:
+                    errors = await page.evaluate('''() => {
+                        return window.console && window.console.error ? 
+                            JSON.stringify(window.console._errors || []) : 'No errors captured';
+                    }''')
+                    print(f"  JavaScript errors: {errors}")
+                except:
+                    print("  JavaScript errors: Could not check")
                 
-                # Check for error messages or blocks
-                if "blocked" in page_content.lower() or "suspicious" in page_content.lower():
-                    print("⚠️ Page content suggests IP/access may be blocked")
+                # Check if we can access any form elements
+                form_elements = await page.query_selector_all('form')
+                print(f"  Forms found: {len(form_elements)}")
+                
+                button_elements = await page.query_selector_all('button')
+                print(f"  Buttons found: {len(button_elements)}")
                 
                 return False
             
@@ -180,23 +280,25 @@ async def test_instagram_page_load():
                 try:
                     attrs = await input_elem.evaluate('''
                         el => ({
-                            name: el.name,
-                            placeholder: el.placeholder,
-                            type: el.type,
-                            ariaLabel: el.ariaLabel,
-                            id: el.id,
-                            className: el.className,
-                            visible: el.offsetParent !== null
+                            name: el.name || '',
+                            placeholder: el.placeholder || '',
+                            type: el.type || '',
+                            ariaLabel: el.ariaLabel || '',
+                            id: el.id || '',
+                            className: el.className || '',
+                            visible: el.offsetParent !== null && el.offsetWidth > 0 && el.offsetHeight > 0,
+                            value: el.value || ''
                         })
                     ''')
                     
-                    print(f"  Input {i+1}: {attrs}")
+                    print(f"  Input {i+1}: name='{attrs['name']}' type='{attrs['type']}' placeholder='{attrs['placeholder']}' visible={attrs['visible']}")
                     
                     # Check if it's a username field
-                    if (attrs.get('name') == 'username' or 
+                    if (attrs.get('name') in ['username', 'email'] or 
+                        'username' in str(attrs.get('placeholder', '')).lower() or
+                        'email' in str(attrs.get('placeholder', '')).lower() or
                         'username' in str(attrs.get('ariaLabel', '')).lower() or
-                        'email' in str(attrs.get('ariaLabel', '')).lower() or
-                        attrs.get('type') == 'text'):
+                        (attrs.get('type') == 'text' and attrs.get('visible'))):
                         username_found = True
                         
                     # Check if it's a password field
@@ -215,6 +317,8 @@ async def test_instagram_page_load():
             
         except Exception as e:
             print(f"❌ Error during page load test: {e}")
+            import traceback
+            traceback.print_exc()
             return False
         finally:
             await browser.close()
@@ -240,7 +344,7 @@ async def test_real_account_auth():
         print(f"⚠️ Account cookies are expired or invalid")
     
     # Load account details
-    from instagram_accounts import get_account_details
+    from instagram_accounts import instagram_accounts_manager, get_account_details
     account_details = get_account_details(test_account)
     
     if account_details:

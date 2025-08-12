@@ -11,14 +11,14 @@ from pathlib import Path
 # Add the current directory to the Python path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from instagram_accounts import get_all_accounts, get_account_details
+from instagram_accounts import instagram_accounts_manager, get_account_details
 from instagram_cookie_manager import cookie_manager
 
 def test_account_data():
     """Test if account data is available"""
     print("🧪 Testing Account Data Availability...")
     
-    accounts = get_all_accounts()
+    accounts = instagram_accounts_manager.get_all_accounts()
     print(f"📊 Found {len(accounts)} total accounts")
     
     if len(accounts) == 0:
@@ -72,7 +72,7 @@ async def test_basic_instagram_auth():
     print("✅ Authentication system initialized")
     
     # Test TOTP generation if we have an account with TOTP
-    accounts = get_all_accounts()
+    accounts = instagram_accounts_manager.get_all_accounts()
     totp_tested = False
     
     for account in accounts:
