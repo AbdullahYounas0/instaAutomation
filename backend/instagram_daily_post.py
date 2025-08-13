@@ -1487,6 +1487,15 @@ class InstagramDailyPostAutomation:
                 self.log(f"[Account {account_number}] 📊 Method: {auth_info.get('authentication_method', 'unknown')}")
                 self.log(f"[Account {account_number}] 🍪 Cookies loaded: {auth_info.get('cookies_loaded', False)}")
                 self.log(f"[Account {account_number}] 💾 Cookies saved: {auth_info.get('cookies_saved', False)}")
+                
+                # Check for account suspension
+                page = context.pages[0] if context.pages else None
+                if page:
+                    current_url = page.url.lower()
+                    if "suspended" in current_url or "accounts/suspended" in current_url:
+                        self.log(f"[Account {account_number}] 🚫 Account {username} is suspended - skipping", "ERROR")
+                        return False, auth_info
+                
                 return True, auth_info  # Return both success and auth_info
             else:
                 self.log(f"[Account {account_number}] ❌ Authentication failed")
@@ -1570,7 +1579,7 @@ class InstagramDailyPostAutomation:
             return
         await asyncio.sleep(random.randint(min_ms, max_ms) / 1000)
 
-    async def handle_login_info_save_dialog(self, page, account_number):
+    async def handle_login_info_save_dialog(self, page, account_number, username=None):
         """Handle the 'Save your login info?' dialog by clicking 'Save info' only"""
         try:
             self.log(f"[Account {account_number}] 🔍 Checking for 'Save login info' dialog...")
@@ -1580,6 +1589,12 @@ class InstagramDailyPostAutomation:
             
             # Check if we're on the save login info page
             current_url = page.url
+            
+            # Check for account suspension first
+            if "suspended" in current_url.lower() or "accounts/suspended" in current_url.lower():
+                self.log(f"[Account {account_number}] 🚫 Account is suspended - cannot proceed")
+                return False
+            
             if "accounts/onetap" not in current_url:
                 self.log(f"[Account {account_number}] ℹ️ Not on save login info page, current URL: {current_url}")
                 return True  # Not an error, just not on that page
@@ -1944,7 +1959,7 @@ class InstagramDailyPostAutomation:
                             return False
 
                     # Check for save login info dialog and dismiss it
-                    await self.handle_login_info_save_dialog(page, account_number)
+                    await self.handle_login_info_save_dialog(page, account_number, username)
                     
                     # Post the media
                     post_success = await self.post_to_instagram(page, username, caption)
@@ -2403,8 +2418,8 @@ class InstagramDailyPostAutomation:
             traceback.print_exc()
             return False
 
-    async def run_automation(self, accounts_file, media_file, concurrent_accounts=5, caption="", auto_generate_caption=True):
-        """Main function to run the automation for all accounts concurrently."""
+    async def run_automation(self, accounts_file, media_file, concurrent_accounts=1, caption="", auto_generate_caption=True):
+        """Main function to run the automation for all accounts with individual browser instances."""
         self.log("🏁 Starting Instagram Daily Post Automation...")
 
         if self.should_stop():
@@ -2420,43 +2435,60 @@ class InstagramDailyPostAutomation:
             self.log("❌ No accounts loaded. Automation stopped.", "ERROR")
             return False
             
-        self.log(f"⚙️ Running automation for {len(accounts)} accounts with concurrency limit: {concurrent_accounts}")
+        self.log(f"⚙️ Running automation for {len(accounts)} accounts sequentially (1 browser per account)")
         
-        # Create a lock to manage concurrent access to shared resources (if any)
-        lock = asyncio.Lock()
+        # Process accounts sequentially to avoid browser conflicts
+        successful_count = 0
+        failed_count = 0
         
-        tasks = []
         for i, (username, password) in enumerate(accounts):
+            if self.should_stop():
+                self.log("⚠️ Stop flag detected. Stopping automation.", "WARNING")
+                break
+                
             account_details = {
                 "username": username,
                 "password": password,
                 "account_number": i + 1,
-                "totp_secret": get_account_details(username).get('totp_secret') # Fetch TOTP secret
+                "totp_secret": get_account_details(username).get('totp_secret') if get_account_details(username) else None
             }
-            task = asyncio.create_task(
-                self.run_individual_post(account_details, media_file, caption, self.script_id, self.log_callback, self.stop_flag_callback, lock)
-            )
-            tasks.append(task)
             
-            # Wait for a number of tasks to complete before adding more
-            if len(tasks) >= concurrent_accounts:
-                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                tasks = list(pending) # Keep only pending tasks
+            self.log(f"[Account {i+1}/{len(accounts)}] 🚀 Processing {username}...")
+            
+            try:
+                # Create a new automation instance for each account to ensure clean state
+                account_automation = InstagramDailyPostAutomation(self.script_id, self.log_callback, self.stop_flag_callback)
+                account_automation.set_media_file(media_file)
                 
-        # Wait for any remaining tasks to finish
-        if tasks:
-            results = await asyncio.gather(*tasks)
-            successful_count = sum(1 for result in results if result)
-            
-            if successful_count > 0:
-                self.log(f"⚠️ Partial success: {successful_count}/{len(accounts)} accounts completed successfully.", "WARNING")
-            else:
-                self.log(f"❌ No accounts completed successfully. {len(accounts)} accounts failed.", "ERROR")
-            
-            self.log(f"Automation finished! {successful_count}/{len(accounts)} accounts processed successfully.")
-            return successful_count > 0
+                success = await account_automation.instagram_post_script(
+                    username, password, account_details["account_number"], caption
+                )
+                
+                if success:
+                    successful_count += 1
+                    self.log(f"[Account {i+1}] ✅ Successfully completed for {username}")
+                else:
+                    failed_count += 1
+                    self.log(f"[Account {i+1}] ❌ Failed for {username}")
+                    
+            except Exception as e:
+                failed_count += 1
+                self.log(f"[Account {i+1}] ❌ Error processing {username}: {e}", "ERROR")
+                
+            # Add delay between accounts to avoid rate limiting
+            if i < len(accounts) - 1:  # Don't wait after the last account
+                self.log(f"⏳ Waiting 30 seconds before processing next account...")
+                await asyncio.sleep(30)
         
-        return True
+        # Final summary
+        self.log(f"📊 Automation completed! {successful_count} successful, {failed_count} failed out of {len(accounts)} accounts")
+        
+        if successful_count > 0:
+            self.log(f"✅ Partial or full success: {successful_count}/{len(accounts)} accounts completed successfully.")
+            return True
+        else:
+            self.log(f"❌ No accounts completed successfully. All {len(accounts)} accounts failed.", "ERROR")
+            return False
 
 # Async function to run the automation (to be called from Flask)
 async def run_daily_post_automation(script_id, accounts_file, media_file, concurrent_accounts=5, 

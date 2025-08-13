@@ -213,6 +213,14 @@ class EnhancedInstagramAuth:
                 info['authentication_method'] = 'credentials'
                 info['session_valid'] = True
                 
+                # Check for account suspension before declaring success
+                current_url = page.url.lower()
+                if "suspended" in current_url or "accounts/suspended" in current_url:
+                    log("🚫 Account is suspended - authentication cannot proceed")
+                    info['errors'].append("Account is suspended")
+                    await page.close()
+                    return False, info
+                
                 # Step 5: Save cookies after successful credential login
                 log("💾 Saving session cookies...")
                 if await self._save_session_cookies(page, username, proxy_info, log):
@@ -336,7 +344,15 @@ class EnhancedInstagramAuth:
             await self._human_delay(3000, 5000)
             
             # Check if we're logged in
-            if await self._is_logged_in(page):
+            login_success = await self._is_logged_in(page)
+            
+            # Check for account suspension
+            current_url = page.url.lower()
+            if "suspended" in current_url or "accounts/suspended" in current_url:
+                log("🚫 Account is suspended - cannot proceed")
+                return False
+                
+            if login_success:
                 log("✅ Cookie authentication successful")
                 return True
             else:
