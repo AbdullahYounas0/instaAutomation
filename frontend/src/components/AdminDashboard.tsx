@@ -52,7 +52,7 @@ const AdminDashboard: React.FC = () => {
     username: '',
     password: '',
     email: '',
-    phone: '',
+    email_Password: '',
     notes: '',
     totp_secret: ''
   });
@@ -61,7 +61,7 @@ const AdminDashboard: React.FC = () => {
     username: '',
     password: '',
     email: '',
-    phone: '',
+    email_Password: '',
     notes: '',
     totp_secret: '',
     is_active: true
@@ -254,14 +254,14 @@ const AdminDashboard: React.FC = () => {
         newAccount.username,
         newAccount.password,
         newAccount.email,
-        newAccount.phone,
+        newAccount.email_Password,
         newAccount.notes,
         newAccount.totp_secret
       );
 
       if (result.success) {
         setShowCreateAccount(false);
-        setNewAccount({ username: '', password: '', email: '', phone: '', notes: '', totp_secret: '' });
+        setNewAccount({ username: '', password: '', email: '', email_Password: '', notes: '', totp_secret: '' });
         loadData(); // Refresh data
       } else {
         setError(result.message || 'Failed to create account');
@@ -282,7 +282,7 @@ const AdminDashboard: React.FC = () => {
       const updates: any = {
         username: editAccountForm.username,
         email: editAccountForm.email,
-        phone: editAccountForm.phone,
+        email_Password: editAccountForm.email_Password,
         notes: editAccountForm.notes,
         totp_secret: editAccountForm.totp_secret,
         is_active: editAccountForm.is_active
@@ -362,7 +362,7 @@ const AdminDashboard: React.FC = () => {
       username: account.username,
       password: '',
       email: account.email,
-      phone: account.phone,
+      email_Password: account.email_Password,
       notes: account.notes,
       totp_secret: account.totp_secret || '',
       is_active: account.is_active
@@ -747,7 +747,7 @@ const AdminDashboard: React.FC = () => {
                   <tr>
                     <th>Username</th>
                     <th>Email</th>
-                    <th>Phone</th>
+                    <th>email_Password</th>
                     <th>2FA Status</th>
                     <th>Proxy Assignment</th>
                     <th>Status</th>
@@ -768,7 +768,7 @@ const AdminDashboard: React.FC = () => {
                         </div>
                       </td>
                       <td>{account.email || '-'}</td>
-                      <td>{account.phone || '-'}</td>
+                      <td>{account.email_Password || '-'}</td>
                       <td>
                         <span className={`totp-status ${account.totp_secret ? 'enabled' : 'disabled'}`}>
                           {account.totp_secret ? '🔐 Enabled' : '🔓 Disabled'}
@@ -1241,8 +1241,8 @@ const AdminDashboard: React.FC = () => {
                 <label>Email Password</label>
                 <input
                   type="text"
-                  value={newAccount.phone}
-                  onChange={(e) => setNewAccount({ ...newAccount, phone: e.target.value })}
+                  value={newAccount.email_Password}
+                  onChange={(e) => setNewAccount({ ...newAccount, email_Password: e.target.value })}
                 />
               </div>
               <div className="form-group">
@@ -1318,8 +1318,8 @@ const AdminDashboard: React.FC = () => {
                 <label>Email Password</label>
                 <input
                   type="text"
-                  value={editAccountForm.phone}
-                  onChange={(e) => setEditAccountForm({ ...editAccountForm, phone: e.target.value })}
+                  value={editAccountForm.email_Password}
+                  onChange={(e) => setEditAccountForm({ ...editAccountForm, email_Password: e.target.value })}
                 />
               </div>
               <div className="form-group">
@@ -1385,7 +1385,7 @@ const AdminDashboard: React.FC = () => {
                   required
                 />
                 <small>
-                  File should contain columns: username (required), password (required), email (optional), phone (optional), notes (optional), totp_secret (optional)
+                  File should contain columns: username (required), password (required), email (optional), email_Password (optional), notes (optional), totp_secret (optional)
                 </small>
               </div>
               <div className="modal-actions">

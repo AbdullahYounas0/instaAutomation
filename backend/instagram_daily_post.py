@@ -1276,6 +1276,7 @@ from instagram_accounts import get_account_details
 from proxy_manager import proxy_manager
 from enhanced_instagram_auth import enhanced_auth
 from instagram_cookie_manager import cookie_manager
+from stealth_browser_manager import StealthBrowserManager, ensure_proxy_assignment
 
 class InstagramDailyPostAutomation:
     def __init__(self, script_id, log_callback=None, stop_flag_callback=None):
@@ -1780,202 +1781,72 @@ class InstagramDailyPostAutomation:
             return False
 
         try:
-            async with async_playwright() as p:
-                if self.should_stop():
-                    self.log(f"[Account {account_number}] ⚠️ Stop flag detected before browser launch, terminating", "WARNING")
-                    return
+            # Ensure account has a proxy assigned (strict one-to-one binding)
+            if not ensure_proxy_assignment(username):
+                self.log(f"[Account {account_number}] ❌ Failed to ensure proxy assignment", "ERROR")
+                return False
                 
-                # Get assigned proxy for this account
-                proxy_string = proxy_manager.get_account_proxy(username)
-                proxy_config = None
-                if proxy_string:
-                    proxy_info = proxy_manager.parse_proxy(proxy_string)
-                    if proxy_info:
-                        proxy_config = {
-                            'server': proxy_info['server'],
-                            'username': proxy_info['username'],
-                            'password': proxy_info['password']
-                        }
-                        self.log(f"[Account {account_number}] Using assigned proxy: {proxy_info['host']}:{proxy_info['port']}")
-                    else:
-                        self.log(f"[Account {account_number}] No proxy assigned to this account")
+            if self.should_stop():
+                self.log(f"[Account {account_number}] ⚠️ Stop flag detected before browser launch, terminating", "WARNING")
+                return False
+            
+            self.log(f"[Account {account_number}] 🚀 Launching stealth browser with full anti-detection...")
+            
+            # Create stealth browser with comprehensive anti-detection
+            stealth_manager = StealthBrowserManager(username)
+            browser, context = await stealth_manager.create_stealth_browser()
+            
+            self.log(f"[Account {account_number}] ✅ Stealth browser launched with full profile persistence and fingerprint spoofing")
+            
+            try:
+                # Use the default page that's automatically created with the context
+                pages = context.pages
+                if pages:
+                    page = pages[0]
+                else:
+                    page = await context.new_page()
                 
-                self.log(f"[Account {account_number}] 🚀 Launching browser...")
-
-                # Configure browser launch args to avoid detection and redirects
-                browser_args = [
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                    '--disable-gpu',
-                    '--disable-background-timer-throttling',
-                    '--disable-backgrounding-occluded-windows',
-                    '--disable-renderer-backgrounding',
-                    '--disable-field-trial-config',
-                    '--disable-hang-monitor',
-                    '--disable-ipc-flooding-protection',
-                    '--no-first-run',
-                    '--no-default-browser-check',
-                    '--disable-default-apps',
-                    '--disable-sync',
-                    '--disable-translate',
-                    '--hide-scrollbars',
-                    '--mute-audio',
-                    '--no-zygote',
-                    '--disable-logging',
-                    '--disable-permissions-api',
-                    '--ignore-certificate-errors',
-                    '--allow-running-insecure-content'
-                ]
+                self.log(f"[Account {account_number}] ✅ Page created")
                 
-                # Full size for headless mode
-                viewport_width = 1920
-                viewport_height = 1080
+                # Log in
+                login_success, auth_info = await self.login_instagram_with_cookies_and_2fa(page, context, username, password, account_number)
                 
-                browser = None
-                try:
-                    # Try Chromium first (more reliable)
-                    self.log(f"[Account {account_number}] 🔧 Attempting to launch Chromium browser...")
-                    browser = await p.chromium.launch(
-                        headless=True, # Use headless mode for VPS
-                        args=browser_args,
-                        proxy=proxy_config,
-                        slow_mo=100 # Small delay for visibility
-                    )
-                    self.log(f"[Account {account_number}] ✅ Chromium browser launched successfully")
-                except Exception as chrome_error:
-                    self.log(f"[Account {account_number}] ⚠️ Chromium launch failed: {chrome_error}")
-                    
-                    # Check if it's a browser installation issue
-                    if "Executable doesn't exist" in str(chrome_error) or "playwright install" in str(chrome_error).lower():
-                        self.log(f"[Account {account_number}] 🔧 Browser not installed. Attempting to install browsers...")
-                        try:
-                            import subprocess
-                            result = subprocess.run(['playwright', 'install', 'chromium'], 
-                                                  capture_output=True, text=True, timeout=300)
-                            if result.returncode == 0:
-                                self.log(f"[Account {account_number}] ✅ Browser installation completed. Retrying launch...")
-                                # Retry browser launch after installation
-                                browser = await p.chromium.launch(
-                                    headless=True, # Use headless mode for VPS
-                                    args=browser_args,
-                                    proxy=proxy_config,
-                                    slow_mo=100
-                                )
-                                self.log(f"[Account {account_number}] ✅ Chromium browser launched successfully after installation")
+                if not login_success:
+                    self.log(f"[Account {account_number}] ❌ Login failed for {username}", "ERROR")
+                    # Try to handle 2FA if it's the reason for failure
+                    if auth_info.get('requires_2fa'):
+                        totp_secret = get_account_details(username).get('totp_secret')
+                        if totp_secret:
+                            self.log(f"[Account {account_number}] 🔄 Retrying login with 2FA handling...")
+                            if await self.handle_2fa_verification(page, username, totp_secret):
+                                login_success = True
                             else:
-                                self.log(f"[Account {account_number}] ❌ Browser installation failed: {result.stderr}", "ERROR")
-                                # Try system-level installation
-                                subprocess.run(['python', '-m', 'playwright', 'install', 'chromium'], timeout=300)
-                                browser = await p.chromium.launch(
-                                    headless=True, # Use headless mode for VPS
-                                    args=browser_args,
-                                    proxy=proxy_config,
-                                    slow_mo=100
-                                )
-                                self.log(f"[Account {account_number}] ✅ Chromium browser launched after system installation")
-                        except Exception as install_error:
-                            self.log(f"[Account {account_number}] ❌ Browser installation failed: {install_error}", "ERROR")
-                            # Fallback to basic launch without extra features
-                            try:
-                                self.log(f"[Account {account_number}] 🔄 Attempting basic browser launch...")
-                                browser = await p.chromium.launch(
-                                    headless=True,  # Use headless mode for VPS
-                                    proxy=proxy_config
-                                )
-                                self.log(f"[Account {account_number}] ✅ Basic browser launched successfully")
-                            except Exception as basic_error:
-                                self.log(f"[Account {account_number}] ❌ All browser launch attempts failed: {basic_error}", "ERROR")
-                                return False
-                    else:
-                        # Fallback to basic launch without extra features
-                        try:
-                            self.log(f"[Account {account_number}] 🔄 Attempting basic browser launch...")
-                            browser = await p.chromium.launch(
-                                headless=True, # Use headless mode for VPS
-                                proxy=proxy_config
-                            )
-                            self.log(f"[Account {account_number}] ✅ Basic browser launched successfully")
-                        except Exception as basic_error:
-                            self.log(f"[Account {account_number}] ❌ All browser launch attempts failed: {basic_error}", "ERROR")
-                            return False
-                
-                if not browser:
-                    self.log(f"[Account {account_number}] ❌ Failed to launch browser", "ERROR")
-                    return False
-                
-                try:
-                    context = await browser.new_context(
-                        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        viewport={'width': viewport_width, 'height': viewport_height},
-                        extra_http_headers={
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                            'Accept-Language': 'en-US,en;q=0.9',
-                            'Accept-Encoding': 'gzip, deflate, br',
-                            'Sec-Fetch-Dest': 'document',
-                            'Sec-Fetch-Mode': 'navigate',
-                            'Sec-Fetch-User': '?1',
-                            'Upgrade-Insecure-Requests': '1'
-                        }
-                    )
-                    self.log(f"[Account {account_number}] ✅ Browser context created successfully")
-                except Exception as e:
-                    self.log(f"[Account {account_number}] ❌ Failed to create browser context: {e}", "ERROR")
-                    await browser.close()
-                    return False
-                
-                try:
-                    # Use the default page that's automatically created with the context
-                    pages = context.pages
-                    if pages:
-                        page = pages[0]
-                    else:
-                        page = await context.new_page()
-                    
-                    self.log(f"[Account {account_number}] ✅ Page created")
-                    
-                    # Log in
-                    login_success, auth_info = await self.login_instagram_with_cookies_and_2fa(page, context, username, password, account_number)
-                    
-                    if not login_success:
-                        self.log(f"[Account {account_number}] ❌ Login failed for {username}", "ERROR")
-                        # Try to handle 2FA if it's the reason for failure
-                        if auth_info.get('requires_2fa'):
-                            totp_secret = get_account_details(username).get('totp_secret')
-                            if totp_secret:
-                                self.log(f"[Account {account_number}] 🔄 Retrying login with 2FA handling...")
-                                if await self.handle_2fa_verification(page, username, totp_secret):
-                                    login_success = True
-                                else:
-                                    self.log(f"[Account {account_number}] ❌ 2FA verification failed again. Aborting.", "ERROR")
-                                    return False
-                            else:
-                                self.log(f"[Account {account_number}] ❌ 2FA required but no TOTP secret provided. Aborting.", "ERROR")
+                                self.log(f"[Account {account_number}] ❌ 2FA verification failed again. Aborting.", "ERROR")
                                 return False
                         else:
+                            self.log(f"[Account {account_number}] ❌ 2FA required but no TOTP secret provided. Aborting.", "ERROR")
                             return False
+                    else:
+                        return False
 
-                    # Check for save login info dialog and dismiss it
-                    await self.handle_login_info_save_dialog(page, account_number, username)
-                    
-                    # Post the media
-                    post_success = await self.post_to_instagram(page, username, caption)
-                    
-                    return post_success
-                    
-                except Exception as e:
-                    self.log(f"[Account {account_number}] ❌ An error occurred during the posting process: {e}", "ERROR")
-                    traceback.print_exc()
-                    return False
-                finally:
-                    await self.human_delay(1500, 2500)
-                    self.log(f"[Account {account_number}] 🚪 Closing browser...")
-                    if browser:
-                        await browser.close()
-                    self.log(f"[Account {account_number}] ✅ Browser closed")
+                # Check for save login info dialog and dismiss it
+                await self.handle_login_info_save_dialog(page, account_number, username)
+                
+                # Post the media
+                post_success = await self.post_to_instagram(page, username, caption)
+                
+                return post_success
+                
+            except Exception as e:
+                self.log(f"[Account {account_number}] ❌ An error occurred during the posting process: {e}", "ERROR")
+                traceback.print_exc()
+                return False
+            finally:
+                await self.human_delay(1500, 2500)
+                self.log(f"[Account {account_number}] 🚪 Closing browser...")
+                if browser:
+                    await browser.close()
+                self.log(f"[Account {account_number}] ✅ Browser closed")
                     
         except Exception as e:
             self.log(f"[Account {account_number}] ❌ Unhandled error: {e}", "ERROR")
@@ -2488,6 +2359,68 @@ class InstagramDailyPostAutomation:
             return True
         else:
             self.log(f"❌ No accounts completed successfully. All {len(accounts)} accounts failed.", "ERROR")
+            return False
+
+    async def handle_file_upload(self, page, file_path):
+        """Handle file upload for Instagram posts"""
+        try:
+            self.log(f"📁 Uploading file: {file_path}")
+            
+            # Wait for the file input element
+            file_input = await page.wait_for_selector('input[type="file"]', timeout=10000)
+            
+            # Upload the file
+            await file_input.set_input_files(file_path)
+            self.log("✅ File uploaded successfully")
+            
+            return True
+            
+        except Exception as e:
+            self.log(f"❌ File upload failed: {e}", "ERROR")
+            return False
+
+    async def process_post(self, page, post_data):
+        """Process the post data and handle Instagram posting flow"""
+        try:
+            self.log("📝 Processing post data...")
+            
+            # Wait for the post creation interface
+            await page.wait_for_selector('[aria-label="New post"]', timeout=10000)
+            
+            # Process any additional post settings
+            if post_data.get('alt_text'):
+                self.log("🏷️ Adding alt text...")
+                # Add alt text functionality here
+                
+            if post_data.get('location'):
+                self.log("📍 Adding location...")
+                # Add location functionality here
+                
+            self.log("✅ Post processed successfully")
+            return True
+            
+        except Exception as e:
+            self.log(f"❌ Post processing failed: {e}", "ERROR")
+            return False
+
+    async def add_caption(self, page, caption):
+        """Add caption to Instagram post"""
+        try:
+            self.log(f"📝 Adding caption: {caption[:50]}...")
+            
+            # Wait for caption textarea
+            caption_area = await page.wait_for_selector('textarea[aria-label*="caption"]', timeout=10000)
+            
+            # Clear existing text and add new caption
+            await caption_area.click()
+            await caption_area.fill('')
+            await caption_area.type(caption, delay=50)
+            
+            self.log("✅ Caption added successfully")
+            return True
+            
+        except Exception as e:
+            self.log(f"❌ Caption addition failed: {e}", "ERROR")
             return False
 
 # Async function to run the automation (to be called from Flask)

@@ -39,11 +39,10 @@ const WarmupPage: React.FC = () => {
     // Set up CAPTCHA detection
     const captchaDetector = CaptchaDetector.getInstance();
     captchaDetector.setOnCaptchaDetected((event) => {
-      if ((window as any).showCaptchaToast) {
-        (window as any).showCaptchaToast(event.accountUsername);
-      }
+      // CAPTCHA detected - backend will handle this automatically
+      console.log(`CAPTCHA detected for account: ${event.accountUsername}`);
       // Note: The backend script handles automatic TOTP retry internally
-      // The UI just shows the notification and continues monitoring
+      // The UI just monitors without showing notifications
     });
 
     // Check for running scripts first, then load accounts
@@ -325,7 +324,7 @@ const WarmupPage: React.FC = () => {
                           <div className="account-details">
                             <small><strong>Password:</strong> {account.password}</small>
                             {account.email && <small><strong>Email:</strong> {account.email}</small>}
-                            {account.phone && <small><strong>Email Password:</strong> {account.phone}</small>}
+                            {account.email_Password && <small><strong>Email Password:</strong> {account.email_Password}</small>}
                             <div className="proxy-info">
                               {account.has_proxy ? (
                                 <small><strong>Proxy:</strong> 🌐 #{account.proxy_index} ({account.proxy_host}:{account.proxy_port})</small>

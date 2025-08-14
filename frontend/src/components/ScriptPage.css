@@ -314,7 +314,8 @@
   color: white;
   display: flex;
   flex-direction: column;
-  max-height: 800px;
+  height: 600px; /* Fixed height for logs section */
+  max-height: 600px; /* Ensure it doesn't grow beyond this */
 }
 
 .logs-header {
@@ -433,7 +434,8 @@
   font-family: 'Monaco', 'Menlo', monospace;
   font-size: 0.85rem;
   line-height: 1.4;
-  max-height: 600px;
+  max-height: 500px; /* Fixed maximum height for scrollable area */
+  height: 100%; /* Take available height within parent */
 }
 
 .logs-footer {
@@ -566,8 +568,13 @@
     grid-template-columns: 1fr;
   }
   
-  .logs-container {
+  .script-logs-section {
+    height: 400px; /* Smaller fixed height for mobile */
     max-height: 400px;
+  }
+  
+  .logs-container {
+    max-height: 300px; /* Smaller scrollable area for mobile */
   }
 }
 

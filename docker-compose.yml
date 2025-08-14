@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: insta-automation-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - CORS_ORIGINS=https://wdyautomation.shop,https://www.wdyautomation.shop,http://wdyautomation.shop,http://www.wdyautomation.shop,http://localhost:3000
+      - SECRET_KEY=${SECRET_KEY:-ECF5D0BF2DC9809BDC8390C8231D8F10C5357DE3A8DA540F3F4E33AB679A7ABF}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-D39371E092229425823D02B2C0BF590EC8B67FD22F35E87CD3991AC93B9FDB73}
+      - INSTAGRAM_API_DELAY_MIN=2
+      - INSTAGRAM_API_DELAY_MAX=5
+      - PROXY_ROTATION_ENABLED=true
+      - PROXY_TIMEOUT=30
+      - LOG_LEVEL=INFO
+      - MAX_CONCURRENT_SCRIPTS=5
+      - MAX_SCRIPT_DURATION=7200
+      - MAX_FILE_SIZE=100MB
+    volumes:
+      - ./backend/logs:/app/logs
+      - ./backend/uploads:/app/uploads
+      - ./backend/instagram_cookies:/app/instagram_cookies
+      - ./backend/browser_profiles:/app/browser_profiles
+      - ./backend/users.json:/app/users.json
+      - ./backend/instagram_accounts.json:/app/instagram_accounts.json
+      - ./backend/proxy_assignments.json:/app/proxy_assignments.json
+      - ./backend/activity_logs.json:/app/activity_logs.json
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: insta-automation-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - app-network
+
+  # Optional: SSL reverse proxy (uncomment and configure for production)
+  # nginx-proxy:
+  #   image: nginx:alpine
+  #   container_name: nginx-proxy
+  #   ports:
+  #     - "443:443"
+  #   volumes:
+  #     - ./ssl-proxy.conf:/etc/nginx/conf.d/default.conf
+  #     - ./ssl:/etc/ssl/certs
+  #   depends_on:
+  #     - frontend
+  #   restart: unless-stopped
+  #   networks:
+  #     - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  backend_data:
+    driver: local

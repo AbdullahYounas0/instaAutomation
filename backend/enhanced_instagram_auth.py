@@ -307,7 +307,7 @@ class EnhancedInstagramAuth:
                 await page.goto("about:blank")
                 await self._human_delay(1000, 2000)
                 
-                await page.goto("https://www.instagram.com/", wait_until='domcontentloaded', timeout=30000)
+                await page.goto("https://www.instagram.com/", wait_until='domcontentloaded', timeout=45000)
                 
                 current_url = page.url.lower()
                 if "facebook.com" in current_url:
@@ -333,7 +333,7 @@ class EnhancedInstagramAuth:
             
             # Navigate to Instagram again to use cookies
             log("🔄 Reloading page with cookies...")
-            await page.goto("https://www.instagram.com/", wait_until='domcontentloaded', timeout=30000)
+            await page.goto("https://www.instagram.com/", wait_until='domcontentloaded', timeout=45000)
             
             # Check for Facebook redirect again
             current_url = page.url
@@ -370,11 +370,13 @@ class EnhancedInstagramAuth:
             account_details = get_account_details(username)
             totp_secret = account_details.get('totp_secret', '') if account_details else ''
             
-            # Navigate to login page with Facebook redirect prevention
+            # Navigate to login page with enhanced error handling and proxy fallback
             log("🌐 Navigating to Instagram login page...")
             
             # First, ensure we're starting fresh and not getting redirected
-            max_redirect_attempts = 3
+            max_redirect_attempts = 7  # Increased attempts
+            navigation_success = False
+            
             for attempt in range(max_redirect_attempts):
                 try:
                     log(f"🔄 Navigation attempt {attempt + 1}/{max_redirect_attempts}")
@@ -383,9 +385,22 @@ class EnhancedInstagramAuth:
                     await page.goto("about:blank")
                     await self._human_delay(1000, 2000)
                     
-                    # Navigate directly to Instagram login
-                    await page.goto("https://www.instagram.com/accounts/login/", 
-                                  wait_until='domcontentloaded', timeout=45000)
+                    # Use different navigation strategies based on attempt
+                    if attempt <= 2:
+                        # First attempts: Direct login page
+                        await page.goto("https://www.instagram.com/accounts/login/", 
+                                      wait_until='domcontentloaded', timeout=45000)  # Reduced timeout
+                    elif attempt <= 4:
+                        # Middle attempts: Main page first, then login
+                        await page.goto("https://www.instagram.com/", 
+                                      wait_until='domcontentloaded', timeout=45000)
+                        await self._human_delay(2000, 3000)
+                        await page.goto("https://www.instagram.com/accounts/login/", 
+                                      wait_until='domcontentloaded', timeout=30000)
+                    else:
+                        # Last attempts: Try with networkidle
+                        await page.goto("https://www.instagram.com/accounts/login/", 
+                                      wait_until='networkidle', timeout=30000)
                     
                     await self._human_delay(2000, 3000)
                     
@@ -397,17 +412,15 @@ class EnhancedInstagramAuth:
                         log(f"⚠️ Facebook redirect detected on attempt {attempt + 1}")
                         if attempt < max_redirect_attempts - 1:
                             log("🔄 Retrying with different approach...")
-                            # Try going to main Instagram page first
-                            await page.goto("https://www.instagram.com/", 
-                                          wait_until='domcontentloaded', timeout=30000)
-                            await self._human_delay(3000, 5000)
                             continue
                         else:
                             log("❌ Persistent Facebook redirect - likely proxy/network issue")
+                            log("🔄 Checking if account may be linked to Facebook")
                             return False, totp_secret
                     
                     elif "instagram.com" in current_url:
                         log("✅ Successfully reached Instagram")
+                        navigation_success = True
                         break
                     else:
                         log(f"⚠️ Unexpected URL: {current_url}")
@@ -418,11 +431,28 @@ class EnhancedInstagramAuth:
                             return False, totp_secret
                             
                 except Exception as e:
-                    log(f"⚠️ Navigation attempt {attempt + 1} failed: {e}")
+                    error_msg = str(e)
+                    log(f"⚠️ Navigation attempt {attempt + 1} failed: {error_msg}")
+                    
+                    # Check for specific timeout errors and provide better feedback
+                    if "timeout" in error_msg.lower():
+                        if "60000ms" in error_msg or "45000ms" in error_msg:
+                            log("⏰ Page load timeout - possible network/proxy issue")
+                        elif "30000ms" in error_msg:
+                            log("⏰ Network idle timeout - trying faster approach")
+                    
                     if attempt == max_redirect_attempts - 1:
-                        log("❌ All navigation attempts failed")
+                        log("❌ All navigation attempts failed - possible proxy/network issue")
+                        log("💡 This account may need proxy reassignment or manual verification")
                         return False, totp_secret
-                    await self._human_delay(2000, 4000)
+                    
+                    # Progressive delay increases
+                    delay_multiplier = min(attempt + 1, 3)
+                    await self._human_delay(2000 * delay_multiplier, 4000 * delay_multiplier)
+            
+            if not navigation_success:
+                log("❌ Failed to establish connection to Instagram")
+                return False, totp_secret
             
             await self._human_delay(3000, 5000)
             
@@ -440,8 +470,8 @@ class EnhancedInstagramAuth:
             
             login_form_selectors = [
                 'input[name="username"]',
-                'input[aria-label="Phone number, username, or email"]',
-                'input[aria-label="Phone number, username or email address"]',
+                'input[aria-label="email_Password number, username, or email"]',
+                'input[aria-label="email_Password number, username or email address"]',
                 '#loginForm input[name="username"]',
                 'form input[name="username"]',
                 'input[placeholder*="username"]',
@@ -469,7 +499,7 @@ class EnhancedInstagramAuth:
                         
                         # Verify it's likely a username field
                         attrs_str = str(element_attrs).lower()
-                        if any(keyword in attrs_str for keyword in ['username', 'email', 'phone']):
+                        if any(keyword in attrs_str for keyword in ['username', 'email', 'email_Password']):
                             log(f"✅ Login form detected with selector {i}")
                             working_selector = selector
                             form_found = True
@@ -623,7 +653,7 @@ class EnhancedInstagramAuth:
             await self._human_delay(3000, 5000)
             
             # Handle post-login scenarios with improved error handling
-            max_attempts = 5  # Increased attempts
+            max_attempts = 8  # Increased attempts
             for attempt in range(max_attempts):
                 try:
                     current_url = page.url
@@ -640,7 +670,7 @@ class EnhancedInstagramAuth:
                         log("⚠️ Facebook redirect detected - Instagram may be linking accounts")
                         log("🔄 Attempting to navigate back to Instagram...")
                         try:
-                            await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=30000)
+                            await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=45000)
                             await self._human_delay(3000, 5000)
                             current_url = page.url
                             log(f"🔍 After redirect fix, current URL: {current_url}")
@@ -693,7 +723,23 @@ class EnhancedInstagramAuth:
                     
                     log("🔍 Checking for login errors...")
                     if "login" in current_url and await self._has_login_error(page):
-                        log("❌ Login failed - invalid credentials or account locked")
+                        # Try to get more specific error information
+                        try:
+                            error_text = await page.locator('div[id="slfErrorAlert"], div[role="alert"], [data-testid="login-error"]').inner_text()
+                            if error_text:
+                                log(f"❌ Login error: {error_text}")
+                            else:
+                                log("❌ Login failed - invalid credentials or account may be locked")
+                        except:
+                            log("❌ Login failed - invalid credentials or account may be locked")
+                        
+                        # Check if we should mark account as problematic
+                        log("🔍 Account may need attention - possible issues:")
+                        log("   • Invalid/changed password")
+                        log("   • Account temporarily locked")
+                        log("   • Unusual activity detection")
+                        log("   • Proxy/IP restrictions")
+                        
                         return False, totp_secret
                     
                     else:

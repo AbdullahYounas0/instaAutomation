@@ -22,8 +22,8 @@ class InstagramCookieManager:
         self.cookies_dir.mkdir(exist_ok=True)
         
         # Cookie expiration settings (more lenient for VPS environment)
-        self.cookie_expiry_days = 30
-        self.session_timeout_hours = 72  # Extended session timeout for VPS
+        self.cookie_expiry_days = 45
+        self.session_timeout_hours = 120  # Extended session timeout for VPS
     
     def _get_cookie_file_path(self, username: str) -> Path:
         """Get the cookie file path for a username"""
@@ -183,7 +183,7 @@ class InstagramCookieManager:
         current_time = datetime.now()
         
         # If session is "expired" but within a grace period, still try to use it
-        grace_period_hours = 48  # Additional grace period for VPS
+        grace_period_hours = 96  # Additional grace period for VPS
         grace_expiry = session_expires_at + timedelta(hours=grace_period_hours)
         
         if current_time > grace_expiry:

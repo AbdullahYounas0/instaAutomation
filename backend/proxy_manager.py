@@ -86,9 +86,11 @@ class ProxyManager:
     
     def assign_proxy_to_account(self, account_username: str, proxy_index: Optional[int] = None) -> Optional[str]:
         """
-        Assign a proxy to an Instagram account
+        Assign a proxy to an Instagram account with strict one-to-one binding
         If proxy_index is provided, assign that specific proxy
         If proxy_index is None, assign the next available proxy
+        
+        STRICT RULE: One proxy per account, one account per proxy (NO EXCEPTIONS)
         """
         with self.lock:
             assignments = self.load_assignments()
@@ -96,14 +98,14 @@ class ProxyManager:
             # Check if account already has a proxy assigned
             if account_username in assignments:
                 current_proxy = assignments[account_username]
-                raise ValueError(f"Account {account_username} already has a proxy assigned. Use reassign instead.")
+                raise ValueError(f"Account {account_username} already has a proxy assigned: {current_proxy}. Use reassign_proxy() to change it.")
             
             # If specific proxy index requested
             if proxy_index is not None:
                 if 0 <= proxy_index < len(PROXIES):
                     proxy = PROXIES[proxy_index]
                     
-                    # Check if this proxy is already assigned
+                    # STRICT CHECK: Ensure this proxy is not assigned to ANY other account
                     assigned_proxies = set(assignments.values())
                     if proxy in assigned_proxies:
                         # Find which account has this proxy
@@ -111,9 +113,9 @@ class ProxyManager:
                             (acc for acc, prx in assignments.items() if prx == proxy), 
                             None
                         )
-                        raise ValueError(f"Proxy {proxy_index + 1} is already assigned to account: {assigned_account}")
+                        raise ValueError(f"STRICT BINDING VIOLATION: Proxy {proxy_index + 1} is already assigned to account: {assigned_account}")
                     
-                    # Assign the proxy
+                    # Assign the proxy with strict binding
                     assignments[account_username] = proxy
                     
                     if self.save_assignments(assignments):
@@ -123,14 +125,14 @@ class ProxyManager:
                 else:
                     raise ValueError(f"Invalid proxy index: {proxy_index} (available: 0-{len(PROXIES)-1})")
             
-            # Auto-assign next available proxy
+            # Auto-assign next available proxy with strict one-to-one binding
             assigned_proxies = set(assignments.values())
             available_proxies = [p for p in PROXIES if p not in assigned_proxies]
             
             if not available_proxies:
-                raise Exception("No available proxies left")
+                raise Exception("No available proxies left for assignment. All proxies are bound to accounts.")
             
-            # Assign the first available proxy
+            # Assign the first available proxy with strict binding
             proxy = available_proxies[0]
             assignments[account_username] = proxy
             
@@ -187,8 +189,42 @@ class ProxyManager:
             'usage_percentage': (len(assigned_proxies) / len(PROXIES)) * 100
         }
     
+    def reassign_proxy_to_account(self, account_username: str, new_proxy_string: str) -> str:
+        """
+        Reassign a specific proxy (by string) to an account with strict binding enforcement
+        STRICT RULE: Maintains one-to-one proxy-account binding
+        """
+        with self.lock:
+            if new_proxy_string not in PROXIES:
+                raise ValueError(f"Invalid proxy string: {new_proxy_string}")
+            
+            assignments = self.load_assignments()
+            
+            # STRICT CHECK: Ensure the new proxy is not assigned to someone else
+            assigned_proxies = {acc: prx for acc, prx in assignments.items() if acc != account_username}
+            if new_proxy_string in assigned_proxies.values():
+                assigned_account = next(
+                    (acc for acc, prx in assigned_proxies.items() if prx == new_proxy_string), 
+                    None
+                )
+                raise ValueError(f"STRICT BINDING VIOLATION: Proxy {new_proxy_string} is already assigned to account: {assigned_account}")
+            
+            # Store old proxy for logging
+            old_proxy = assignments.get(account_username, "None")
+            
+            # Assign the new proxy (this frees up the old proxy automatically)
+            assignments[account_username] = new_proxy_string
+            
+            if self.save_assignments(assignments):
+                return new_proxy_string
+            else:
+                raise Exception("Failed to save proxy reassignment")
+
     def reassign_proxy(self, account_username: str, new_proxy_index: int) -> str:
-        """Reassign a different proxy to an account"""
+        """
+        Reassign a different proxy to an account with strict binding enforcement
+        STRICT RULE: Maintains one-to-one proxy-account binding
+        """
         with self.lock:
             if not (0 <= new_proxy_index < len(PROXIES)):
                 raise ValueError(f"Invalid proxy index: {new_proxy_index} (available: 0-{len(PROXIES)-1})")
@@ -196,16 +232,19 @@ class ProxyManager:
             assignments = self.load_assignments()
             new_proxy = PROXIES[new_proxy_index]
             
-            # Check if the new proxy is already assigned to someone else
+            # STRICT CHECK: Ensure the new proxy is not assigned to someone else
             assigned_proxies = {acc: prx for acc, prx in assignments.items() if acc != account_username}
             if new_proxy in assigned_proxies.values():
                 assigned_account = next(
                     (acc for acc, prx in assigned_proxies.items() if prx == new_proxy), 
                     None
                 )
-                raise ValueError(f"Proxy {new_proxy_index + 1} is already assigned to account: {assigned_account}")
+                raise ValueError(f"STRICT BINDING VIOLATION: Proxy {new_proxy_index + 1} is already assigned to account: {assigned_account}")
             
-            # Assign the new proxy
+            # Store old proxy for logging
+            old_proxy = assignments.get(account_username, "None")
+            
+            # Assign the new proxy (this frees up the old proxy automatically)
             assignments[account_username] = new_proxy
             
             if self.save_assignments(assignments):
@@ -224,6 +263,67 @@ class ProxyManager:
                 available_indices.append(i)
         
         return available_indices
+    
+    def validate_strict_binding(self) -> Dict[str, List[str]]:
+        """
+        Validate that proxy-account binding is strictly one-to-one
+        Returns any violations found
+        """
+        assignments = self.load_assignments()
+        violations = {
+            'duplicate_proxies': [],
+            'invalid_proxies': [],
+            'orphaned_accounts': []
+        }
+        
+        # Check for duplicate proxy assignments
+        proxy_count = {}
+        for account, proxy in assignments.items():
+            proxy_count[proxy] = proxy_count.get(proxy, []) + [account]
+        
+        for proxy, accounts in proxy_count.items():
+            if len(accounts) > 1:
+                violations['duplicate_proxies'].append(f"Proxy {proxy} assigned to multiple accounts: {accounts}")
+        
+        # Check for invalid proxies
+        for account, proxy in assignments.items():
+            if proxy not in PROXIES:
+                violations['invalid_proxies'].append(f"Account {account} has invalid proxy: {proxy}")
+        
+        return violations
+    
+    def enforce_strict_binding(self) -> bool:
+        """
+        Enforce strict one-to-one binding by fixing any violations
+        Returns True if fixes were applied
+        """
+        violations = self.validate_strict_binding()
+        fixed = False
+        
+        if violations['duplicate_proxies'] or violations['invalid_proxies']:
+            assignments = self.load_assignments()
+            
+            # Remove all duplicate and invalid assignments
+            for account in list(assignments.keys()):
+                proxy = assignments[account]
+                if proxy not in PROXIES:
+                    del assignments[account]
+                    fixed = True
+            
+            # Handle duplicate assignments - keep first, remove others
+            assigned_proxies = set()
+            for account in list(assignments.keys()):
+                proxy = assignments[account]
+                if proxy in assigned_proxies:
+                    del assignments[account]
+                    fixed = True
+                else:
+                    assigned_proxies.add(proxy)
+            
+            if fixed:
+                self.save_assignments(assignments)
+        
+        return fixed
 
 # Global instance
 proxy_manager = ProxyManager()

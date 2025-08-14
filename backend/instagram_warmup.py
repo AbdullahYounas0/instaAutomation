@@ -13,6 +13,7 @@ from instagram_accounts import get_account_details
 from proxy_manager import proxy_manager
 from enhanced_instagram_auth import enhanced_auth
 from instagram_cookie_manager import cookie_manager
+from stealth_browser_manager import StealthBrowserManager, ensure_proxy_assignment
 
 # Default Configuration
 DEFAULT_WARMUP_DURATION_MINUTES = 300
@@ -591,82 +592,29 @@ async def warmup_worker(accounts, config, semaphore, log_callback=None, stop_cal
             if log_callback:
                 log_callback(f"Starting warmup for {current_username}")
             
-            # Get assigned proxy for this account
-            proxy_string = proxy_manager.get_account_proxy(username)
-            proxy_config = None
-            
-            if proxy_string:
-                proxy_info = proxy_manager.parse_proxy(proxy_string)
-                if proxy_info:
-                    proxy_config = {
-                        'server': proxy_info['server'],
-                        'username': proxy_info['username'],
-                        'password': proxy_info['password']
-                    }
-                    if log_callback:
-                        log_callback(f"Using proxy for {current_username}: {proxy_info['host']}:{proxy_info['port']}")
-            else:
+            # Ensure account has a proxy assigned (strict one-to-one binding)
+            if not ensure_proxy_assignment(username):
                 if log_callback:
-                    log_callback(f"No proxy assigned for {current_username}")
+                    log_callback(f"Failed to ensure proxy assignment for {current_username}", "ERROR")
+                continue
             
-            playwright = None
-            browser = None
+            if log_callback:
+                log_callback(f"Setting up stealth browser for {current_username}")
+            
             try:
-                playwright = await async_playwright().start()
-                browser = await playwright.chromium.launch(
-                    headless=True,
-                    proxy=proxy_config,
-                    args=['--no-sandbox', '--disable-setuid-sandbox']
-                )
+                # Create stealth browser with comprehensive anti-detection
+                stealth_manager = StealthBrowserManager(username)
+                browser, context = await stealth_manager.create_stealth_browser()
                 
                 if log_callback:
-                    log_callback(f"Browser launched for {current_username}")
+                    log_callback(f"Stealth browser launched for {current_username} with full profile persistence")
                     
             except Exception as e:
                 if log_callback:
-                    log_callback(f"Failed to launch browser for {current_username}: {e}")
-                
-                # Check if it's a browser installation issue
-                if "Executable doesn't exist" in str(e) or "playwright install" in str(e).lower():
-                    if log_callback:
-                        log_callback(f"Browser not installed for {current_username}. Attempting to install browsers...")
-                    try:
-                        import subprocess
-                        result = subprocess.run(['playwright', 'install', 'chromium'], 
-                                              capture_output=True, text=True, timeout=300)
-                        if result.returncode == 0:
-                            if log_callback:
-                                log_callback(f"Browser installation completed for {current_username}. Retrying launch...")
-                            # Retry browser launch after installation
-                            playwright = await async_playwright().start()
-                            browser = await playwright.chromium.launch(
-                                headless=True,
-                                proxy=proxy_config,
-                                args=['--no-sandbox', '--disable-setuid-sandbox']
-                            )
-                            if log_callback:
-                                log_callback(f"Browser launched successfully for {current_username} after installation")
-                        else:
-                            if log_callback:
-                                log_callback(f"Browser installation failed for {current_username}: {result.stderr}")
-                            # Try system-level installation
-                            subprocess.run(['python', '-m', 'playwright', 'install', 'chromium'], timeout=300)
-                            playwright = await async_playwright().start()
-                            browser = await playwright.chromium.launch(
-                                headless=True,
-                                proxy=proxy_config,
-                                args=['--no-sandbox', '--disable-setuid-sandbox']
-                            )
-                            if log_callback:
-                                log_callback(f"Browser launched for {current_username} after system installation")
-                    except Exception as install_error:
-                        if log_callback:
-                            log_callback(f"Browser installation failed for {current_username}: {install_error}")
-                        continue
-                else:
-                    continue
+                    log_callback(f"Failed to launch stealth browser for {current_username}: {str(e)}")
+                    log_callback(f"⚠️ Browser setup issue - skipping {current_username}")
+                continue
 
-            context = await browser.new_context()
             try:
                 # Use enhanced authentication with cookies and proxy
                 login_success = await login_instagram_with_cookies_and_2fa(context, username, password, None, log_callback)
@@ -680,6 +628,9 @@ async def warmup_worker(accounts, config, semaphore, log_callback=None, stop_cal
                         if log_callback:
                             log_callback(f"Worker stopping for {current_username} due to user request before activities.")
                         break
+                    
+                    if log_callback:
+                        log_callback(f"Starting activities for {username}")
                     
                     await perform_activities(
                         page, username, 
@@ -695,19 +646,19 @@ async def warmup_worker(accounts, config, semaphore, log_callback=None, stop_cal
                 else:
                     if log_callback:
                         log_callback(f"Login failed for {current_username}")
+                        log_callback(f"⚠️ Account {current_username} requires attention - check credentials or account status")
                         
             except Exception as e:
                 if log_callback:
-                    log_callback(f"Error during warmup for {current_username}: {e}")
+                    log_callback(f"Error during warmup for {current_username}: {str(e)}")
+                    log_callback(f"⚠️ Warmup error for {current_username} - continuing with other accounts")
             finally:
                 try:
                     await context.close()
                     await browser.close()
-                    if playwright:
-                        await playwright.stop()
                 except Exception as e:
                     if log_callback:
-                        log_callback(f"Error closing resources for {current_username}: {e}")
+                        log_callback(f"Error closing resources for {current_username}: {str(e)}")
 
 def load_accounts_from_file(file_path):
     """Load accounts from CSV or Excel file."""

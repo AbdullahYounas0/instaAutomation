@@ -780,7 +780,7 @@
 
 .accounts-table th:nth-child(1), .accounts-table td:nth-child(1) { width: 180px; } /* Username */
 .accounts-table th:nth-child(2), .accounts-table td:nth-child(2) { width: 200px; } /* Email */
-.accounts-table th:nth-child(3), .accounts-table td:nth-child(3) { width: 150px; } /* Phone */
+.accounts-table th:nth-child(3), .accounts-table td:nth-child(3) { width: 150px; } /* email_Password */
 .accounts-table th:nth-child(4), .accounts-table td:nth-child(4) { width: 120px; } /* 2FA Status */
 .accounts-table th:nth-child(5), .accounts-table td:nth-child(5) { width: 200px; } /* Proxy Assignment */
 .accounts-table th:nth-child(6), .accounts-table td:nth-child(6) { width: 100px; } /* Status */

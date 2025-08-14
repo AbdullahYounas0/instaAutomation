@@ -2,13 +2,16 @@
 
 A comprehensive Instagram automation platform built with **FastAPI** backend and **React** frontend. This application provides Instagram warmup, DM automation, daily posting, and account management features.
 
+> **🚀 PRODUCTION READY**: This project is now fully configured for production deployment with Docker, secure secret keys, SSL support, and enterprise-grade reliability.
+
 ## 📋 Table of Contents
 
 - [Features](#features)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Local Development Setup](#local-development-setup)
-- [Production Deployment](#production-deployment)
+- [Docker Deployment (Recommended)](#-docker-deployment-recommended)
+- [Traditional Deployment (Alternative)](#%EF%B8%8F-traditional-deployment-alternative)
 - [API Documentation](#api-documentation)
 - [Usage Guide](#usage-guide)
 - [Troubleshooting](#troubleshooting)
@@ -140,163 +143,106 @@ If using VS Code, you can start both services simultaneously:
 
 This will automatically start both backend and frontend servers.
 
-## 🌐 Production Deployment
+## 🐳 Docker Deployment (Recommended)
 
-### 1. Server Preparation
+The easiest way to deploy this application is using Docker containers. This approach provides:
+- ✅ Consistent environment across development and production
+- ✅ Easy setup and deployment
+- ✅ Automatic dependency management
+- ✅ Built-in health checks and restart policies
+- ✅ Isolated and secure containers
 
-#### Update System Packages
+### Prerequisites
+- Docker Engine 20.10 or later
+- Docker Compose 2.0 or later
+- At least 4GB RAM and 20GB disk space
+
+### Quick Docker Deployment
+
+#### 1. Clone and Setup
 ```bash
-sudo apt update && sudo apt upgrade -y
+git clone https://github.com/AbdullahYounas0/instaAutomation.git
+cd instaAutomation
+
+# Copy and configure environment
+cp .env.example .env
 ```
 
-#### Install Required Software
+#### 2. Configure Environment Variables
+Edit `.env` file with your production settings:
 ```bash
-# Install Node.js (using NodeSource repository)
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Install Python and pip
-sudo apt install python3 python3-pip python3-venv -y
-
-# Install Nginx
-sudo apt install nginx -y
-
-# Install PM2 globally
-sudo npm install -g pm2
+SECRET_KEY=your-production-secret-key-here
+JWT_SECRET_KEY=your-production-jwt-secret-here
+CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 ```
 
-### 2. Application Deployment
-
-#### Clone and Setup Backend
+#### 3. Build and Start
 ```bash
-# Clone the repository
-git clone <your-repository-url> /var/www/instagram-automation
-cd /var/www/instagram-automation
+# Build and start all containers
+docker-compose up -d --build
 
-# Setup Python virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install Python dependencies
-cd backend
-pip install -r requirements.txt
-
-# Create production environment file
-cat > .env << EOF
-SECRET_KEY=$(openssl rand -hex 32)
-PORT=5000
-EOF
+# Check status
+docker-compose ps
+docker-compose logs
 ```
 
-#### Setup Frontend
+Your application will be available at:
+- **Frontend**: http://localhost
+- **Backend API**: http://localhost/api
+
+### Docker Management Commands
+
+Using the included Makefile for easy management:
+
 ```bash
-cd ../frontend
+# Start in production mode
+make prod
 
-# Install dependencies
-npm install
+# View logs
+make logs
 
-# Build for production
-npm run build
+# Restart containers
+make restart
+
+# Create backup
+make backup
+
+# Stop everything
+make down
+
+# Clean up resources
+make clean
 ```
 
-### 3. Process Management with PM2
+### Docker Architecture
 
-#### Create PM2 Configuration
-Create `ecosystem.config.js` in the project root:
-```javascript
-module.exports = {
-  apps: [
-    {
-      name: 'instagram-automation-backend',
-      cwd: '/var/www/instagram-automation/backend',
-      script: 'app.py',
-      interpreter: '/var/www/instagram-automation/venv/bin/python',
-      env: {
-        PORT: 5000,
-        NODE_ENV: 'production'
-      },
-      error_file: '/var/log/pm2/instagram-automation-backend-error.log',
-      out_file: '/var/log/pm2/instagram-automation-backend-out.log',
-      log_file: '/var/log/pm2/instagram-automation-backend.log'
-    }
-  ]
-};
-```
+The application runs in two optimized containers:
 
-#### Start with PM2
-```bash
-# Create log directory
-sudo mkdir -p /var/log/pm2
+#### Backend Container
+- **Base**: Python 3.11 slim with security updates
+- **Features**: FastAPI app with Playwright browsers pre-installed
+- **Security**: Runs as non-root user
+- **Health**: Built-in health checks on `/api/health`
+- **Data**: Persistent volumes for logs, uploads, and configurations
 
-# Start the application
-pm2 start ecosystem.config.js
+#### Frontend Container  
+- **Build Stage**: Node.js 18 for building React app
+- **Runtime Stage**: Nginx Alpine for serving static files
+- **Features**: Optimized production build with gzip compression
+- **Proxy**: Built-in reverse proxy to backend API
+- **Security**: Security headers and optimized nginx configuration
 
-# Save PM2 configuration
-pm2 save
+### Production SSL Setup
 
-# Setup PM2 to start on boot
-pm2 startup
-sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u $(whoami) --hp $(eval echo ~$(whoami))
-```
+For production with SSL, see the detailed [Docker Deployment Guide](DOCKER_DEPLOYMENT.md) for:
+- SSL certificate setup with Let's Encrypt
+- Domain configuration
+- Advanced nginx proxy configuration
+- Production security hardening
 
-### 4. Nginx Configuration
+## 🖥️ Traditional Deployment (Alternative)
 
-#### Create Nginx Configuration
-```bash
-sudo tee /etc/nginx/sites-available/instagram-automation << EOF
-server {
-    listen 80;
-    server_name your-domain.com www.your-domain.com;
-
-    # Serve React frontend
-    location / {
-        root /var/www/instagram-automation/frontend/build;
-        index index.html index.htm;
-        try_files \$uri \$uri/ /index.html;
-    }
-
-    # Proxy API requests to FastAPI backend
-    location /api/ {
-        proxy_pass http://127.0.0.1:5000/api/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-        proxy_read_timeout 300;
-        proxy_connect_timeout 300;
-        proxy_send_timeout 300;
-    }
-
-    # Handle large file uploads
-    client_max_body_size 50M;
-}
-EOF
-
-# Enable the site
-sudo ln -s /etc/nginx/sites-available/instagram-automation /etc/nginx/sites-enabled/
-
-# Test and reload Nginx
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-### 5. SSL Certificate (Recommended)
-
-#### Install Certbot
-```bash
-sudo apt install certbot python3-certbot-nginx -y
-```
-
-#### Obtain SSL Certificate
-```bash
-sudo certbot --nginx -d your-domain.com -d www.your-domain.com
-```
-
-### 6. Firewall Configuration
+If you prefer traditional deployment without Docker, you can still use the manual setup process:
 
 ```bash
 # Allow SSH, HTTP, and HTTPS

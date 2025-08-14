@@ -16,6 +16,7 @@ import time
 from proxy_manager import proxy_manager
 from enhanced_instagram_auth import enhanced_auth
 from instagram_cookie_manager import cookie_manager
+from stealth_browser_manager import StealthBrowserManager, ensure_proxy_assignment
 
 # Configuration constants
 INSTAGRAM_URL = "https://www.instagram.com/"
@@ -96,117 +97,36 @@ class DMAutomationEngine:
         """Parse proxy string into components"""
         return proxy_manager.parse_proxy(proxy_string)
     
-    async def setup_browser(self, proxy_string=None, account_number=1):
-        """Set up browser with optimized settings and proxy support"""
+    async def setup_browser(self, account_username=None, account_number=1):
+        """Set up stealth browser with comprehensive anti-detection for account"""
         try:
-            playwright = await async_playwright().start()
+            # Ensure account has proxy assigned (strict one-to-one binding)
+            if account_username and not ensure_proxy_assignment(account_username):
+                self.log(f"❌ Failed to ensure proxy assignment for {account_username}", "ERROR")
+                raise Exception(f"Proxy assignment failed for {account_username}")
             
-            # Parse proxy if provided
-            proxy_config = None
-            if proxy_string:
-                proxy_parts = self.parse_proxy(proxy_string)
-                if proxy_parts:
-                    proxy_config = {
-                        'server': proxy_parts['server'],
-                        'username': proxy_parts['username'],
-                        'password': proxy_parts['password']
-                    }
-                    self.log(f"Using proxy: {proxy_parts['server']}")
-            
-            # Randomize viewport and user agent
-            viewports = [
-                {"width": 1366, "height": 768},
-                {"width": 1920, "height": 1080},
-                {"width": 1536, "height": 864},
-                {"width": 1440, "height": 900},
-                {"width": 1280, "height": 720}
-            ]
-            viewport = random.choice(viewports)
-            
-            user_agents = [
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
-            ]
-            user_agent = random.choice(user_agents)
-            
-            # Configure browser launch args for headless mode
-            browser_args = [
-                "--no-sandbox", 
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled"
-            ]
-            
-            # Full viewport for headless mode
-            viewport = {"width": 1920, "height": 1080}
-            
-            # Launch browser with stealth mode
-            try:
+            if account_username:
+                self.log(f"🚀 Setting up stealth browser for {account_username}")
+                # Create stealth browser with comprehensive anti-detection
+                stealth_manager = StealthBrowserManager(account_username)
+                browser, context = await stealth_manager.create_stealth_browser()
+                
+                self.log(f"✅ Stealth browser created with full profile persistence and fingerprint spoofing")
+            else:
+                # Fallback for cases where account_username is not provided
+                self.log("⚠️ No account username provided, using basic browser setup")
+                playwright = await async_playwright().start()
                 browser = await playwright.chromium.launch(
-                    headless=True,  # Use headless mode for VPS deployment
-                    proxy=proxy_config,
-                    args=browser_args + ['--start-maximized', '--disable-blink-features=AutomationControlled'],
-                    slow_mo=1000  # Slow down actions for visibility
+                    headless=True,
+                    args=['--no-sandbox', '--disable-dev-shm-usage']
                 )
-            except Exception as browser_error:
-                self.log(f"⚠️ Browser launch failed: {browser_error}")
-                
-                # Check if it's a browser installation issue
-                if "Executable doesn't exist" in str(browser_error) or "playwright install" in str(browser_error).lower():
-                    self.log("🔧 Browser not installed. Attempting to install browsers...")
-                    try:
-                        import subprocess
-                        result = subprocess.run(['playwright', 'install', 'chromium'], 
-                                              capture_output=True, text=True, timeout=300)
-                        if result.returncode == 0:
-                            self.log("✅ Browser installation completed. Retrying launch...")
-                            # Retry browser launch after installation
-                            browser = await playwright.chromium.launch(
-                                headless=True,  # Use headless mode for VPS
-                                proxy=proxy_config,
-                                args=browser_args + ['--start-maximized', '--disable-blink-features=AutomationControlled'],
-                                slow_mo=1000
-                            )
-                        else:
-                            self.log(f"❌ Browser installation failed: {result.stderr}", "ERROR")
-                            # Try system-level installation
-                            subprocess.run(['python', '-m', 'playwright', 'install', 'chromium'], timeout=300)
-                            browser = await playwright.chromium.launch(
-                                headless=True,  # Use headless mode for VPS
-                                proxy=proxy_config,
-                                args=browser_args + ['--start-maximized', '--disable-blink-features=AutomationControlled'],
-                                slow_mo=1000
-                            )
-                    except Exception as install_error:
-                        self.log(f"❌ Browser installation failed: {install_error}", "ERROR")
-                        raise browser_error
-                else:
-                    raise browser_error
+                context = await browser.new_context()
             
-            context = await browser.new_context(
-                user_agent=user_agent,
-                viewport=viewport,
-                java_script_enabled=True,
-                locale='en-US',
-                timezone_id='America/New_York'
-            )
-            
-            # Add stealth scripts
-            await context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
-                
-                window.chrome = {
-                    runtime: {}
-                };
-            """)
-            
+            # Set extended timeouts for Instagram operations
             context.set_default_timeout(120000)  # 2 minutes
             context.set_default_navigation_timeout(120000)
             
-            return playwright, browser, context
+            return playwright if not account_username else None, browser, context
         
         except Exception as e:
             self.log(f"Browser setup failed: {e}", "ERROR")
@@ -1485,8 +1405,8 @@ Make it feel personal and not like spam."""
             
             self.log(f"[{username}] Starting with {len(assigned_users)} users (limit: {dm_limit})")
             
-            # Setup browser with assigned proxy
-            playwright, browser, context = await self.setup_browser(proxy_string, account_number)
+            # Setup stealth browser with account-specific proxy binding
+            playwright, browser, context = await self.setup_browser(username, account_number)
             page = await context.new_page()
             
             # Login with enhanced cookie management and 2FA support

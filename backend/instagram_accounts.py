@@ -332,3 +332,8 @@ def get_account_details(username: str) -> Optional[Dict]:
             account.update(proxy_info)
             return account
     return None
+
+def get_all_account_usernames() -> List[str]:
+    """Get all account usernames"""
+    accounts = instagram_accounts_manager.load_accounts()
+    return [account.get('username', '') for account in accounts if account.get('username')]

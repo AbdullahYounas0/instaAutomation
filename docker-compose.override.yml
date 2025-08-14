@@ -1,0 +1,36 @@
+# Docker Compose override for development
+# This file is automatically loaded by docker-compose in development
+
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    volumes:
+      # Mount source code for hot reload
+      - ./backend:/app
+      - ./backend/logs:/app/logs
+      - ./backend/uploads:/app/uploads
+      - ./backend/instagram_cookies:/app/instagram_cookies
+      - ./backend/browser_profiles:/app/browser_profiles
+    environment:
+      - FLASK_ENV=development
+      - LOG_LEVEL=DEBUG
+    command: uvicorn app:app --host 0.0.0.0 --port 5000 --reload
+    
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: builder  # Use only the builder stage for development
+    volumes:
+      # Mount source code for hot reload
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    command: npm start
+    ports:
+      - "3000:3000"  # Expose React dev server port

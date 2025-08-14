@@ -6,6 +6,7 @@
 # Logs
 logs/
 *.log
+setup_anti_detection.log
 
 # Uploads
 uploads/
@@ -14,6 +15,11 @@ uploads/
 users.json
 activity_logs.json
 instagram_accounts.json
+proxy_assignments.json
+
+# Browser profiles and cookies
+browser_profiles/
+instagram_cookies/
 
 # Python
 __pycache__/
@@ -61,4 +67,27 @@ tmp/
 
 # Backup files
 *.bak
+*_backup.py
+*_fixed.py
 backup/
+
+# Test files
+test_*.py
+debug_*.py
+simple_*.py
+
+# Fix and utility scripts
+fix_*.py
+fix_*.sh
+*_fix.py
+*_fix.sh
+quick_*.sh
+manage.sh
+install_*.py
+update_*.py
+
+# Old documentation
+*_FIXES.md
+*_GUIDE.md
+*_INSTRUCTIONS.md
+*_NOTES.txt

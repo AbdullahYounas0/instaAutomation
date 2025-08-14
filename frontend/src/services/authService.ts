@@ -82,7 +82,7 @@ export interface InstagramAccount {
   username: string;
   password: string;
   email: string;
-  phone: string;
+  email_Password: string;
   notes: string;
   totp_secret: string;  // Added TOTP secret field for 2FA
   is_active: boolean;
@@ -369,7 +369,7 @@ class AuthService {
     username: string,
     password: string,
     email: string = '',
-    phone: string = '',
+    email_Password: string = '',
     notes: string = '',
     totp_secret: string = ''
   ): Promise<{ success: boolean; account?: InstagramAccount; message?: string }> {
@@ -378,7 +378,7 @@ class AuthService {
       formData.append('username', username);
       formData.append('password', password);
       formData.append('email', email);
-      formData.append('phone', phone);
+      formData.append('email_Password', email_Password);
       formData.append('notes', notes);
       formData.append('totp_secret', totp_secret);
 
@@ -406,7 +406,7 @@ class AuthService {
       if (updates.username !== undefined) formData.append('username', updates.username);
       if (updates.password !== undefined) formData.append('password', updates.password);
       if (updates.email !== undefined) formData.append('email', updates.email);
-      if (updates.phone !== undefined) formData.append('phone', updates.phone);
+      if (updates.email_Password !== undefined) formData.append('email_Password', updates.email_Password);
       if (updates.notes !== undefined) formData.append('notes', updates.notes);
       if (updates.totp_secret !== undefined) formData.append('totp_secret', updates.totp_secret);
       if (updates.is_active !== undefined) formData.append('is_active', updates.is_active.toString());

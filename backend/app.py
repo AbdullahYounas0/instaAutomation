@@ -1339,7 +1339,7 @@ async def add_instagram_account(
     username: str = Form(...),
     password: str = Form(...),
     email: str = Form(""),
-    phone: str = Form(""),
+    email_Password: str = Form(""),
     notes: str = Form(""),
     totp_secret: str = Form(""),
     current_user: dict = Depends(admin_required_dependency)
@@ -1350,7 +1350,7 @@ async def add_instagram_account(
             username=username,
             password=password,
             email=email,
-            phone=phone,
+            email_Password=email_Password,
             notes=notes,
             totp_secret=totp_secret
         )
@@ -1368,7 +1368,7 @@ async def update_instagram_account(
     username: str = Form(None),
     password: str = Form(None),
     email: str = Form(None),
-    phone: str = Form(None),
+    email_Password: str = Form(None),
     notes: str = Form(None),
     totp_secret: str = Form(None),
     is_active: bool = Form(None),
@@ -1383,8 +1383,8 @@ async def update_instagram_account(
             updates['password'] = password
         if email is not None:
             updates['email'] = email
-        if phone is not None:
-            updates['phone'] = phone
+        if email_Password is not None:
+            updates['email_Password'] = email_Password
         if notes is not None:
             updates['notes'] = notes
         if totp_secret is not None:
