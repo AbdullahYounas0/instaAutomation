@@ -64,7 +64,7 @@ class InstagramAccountsManager:
         return active_accounts
     
     def add_account(self, username: str, password: str, email: str = '', 
-                   phone: str = '', notes: str = '', totp_secret: str = '') -> Dict:
+                   email_Password: str = '', notes: str = '', totp_secret: str = '') -> Dict:
         """Add a new Instagram account"""
         accounts = self.load_accounts()
         
@@ -77,7 +77,7 @@ class InstagramAccountsManager:
             'username': username,
             'password': password,
             'email': email,
-            'phone': phone,
+            'email_Password': email_Password,  # Use email_Password instead of phone
             'notes': notes,
             'totp_secret': totp_secret,  # Added TOTP secret field
             'is_active': True,
