@@ -1476,12 +1476,15 @@ async def get_all_proxies(current_user: dict = Depends(admin_required_dependency
         usage_stats = proxy_manager.get_proxy_usage_stats()
         available_indices = proxy_manager.get_available_proxy_indices()
         
+        # Get simple assignments for faster lookup
+        simple_assignments = proxy_manager.load_assignments()
+        
         proxy_list = []
         for i, proxy in enumerate(proxies):
             proxy_info = proxy_manager.parse_proxy(proxy)
-            is_assigned = proxy in [info['proxy'] for info in assignments.values()]
+            is_assigned = proxy in simple_assignments.values()
             assigned_to = next(
-                (account for account, info in assignments.items() if info['proxy'] == proxy), 
+                (account for account, assigned_proxy in simple_assignments.items() if assigned_proxy == proxy), 
                 None
             )
             
