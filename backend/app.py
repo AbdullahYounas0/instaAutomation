@@ -1587,20 +1587,20 @@ async def remove_proxy_assignment(
 ):
     """Remove proxy assignment from an Instagram account"""
     try:
-        result = instagram_accounts_manager.remove_proxy_assignment(username)
+        # Use proxy_manager instead of instagram_accounts_manager
+        proxy_manager.remove_proxy_assignment(username)
         
-        if result['success']:
-            log_user_activity(
-                'proxy_remove',
-                f"Removed proxy assignment from account {username}",
-                current_user['user_id']
-            )
-            return {'success': True, 'message': result['message']}
-        else:
-            return {'success': False, 'message': result.get('message', result.get('error', 'Failed to remove proxy assignment'))}
+        log_user_activity(
+            'proxy_remove',
+            f"Removed proxy assignment from account {username}",
+            current_user['user_id']
+        )
+        return {'success': True, 'message': f'Proxy assignment removed from {username}'}
             
-    except HTTPException:
-        raise
+    except ValueError as ve:
+        # Account doesn't have a proxy assigned
+        logger.warning(f"Remove proxy assignment warning: {ve}")
+        raise HTTPException(status_code=404, detail={'success': False, 'message': str(ve)})
     except Exception as e:
         logger.error(f"Remove proxy assignment error: {e}")
         raise HTTPException(status_code=500, detail={'success': False, 'message': str(e)})
