@@ -29,6 +29,15 @@ const DMAutomationPage: React.FC = () => {
     customPrompt: '',
     dmsPerAccount: 30
   });
+  
+  // New state for spintax preview functionality
+  const [spintaxPreviews, setSpintaxPreviews] = useState<string[]>([]);
+  const [selectedSpintaxIndex, setSelectedSpintaxIndex] = useState<number>(-1);
+  const [editableSpintax, setEditableSpintax] = useState<string>('');
+  const [showSpintaxPreview, setShowSpintaxPreview] = useState<boolean>(false);
+  const [promptFileContent, setPromptFileContent] = useState<string>('');
+  const [isGeneratingPreviews, setIsGeneratingPreviews] = useState<boolean>(false);
+  const [isGeneratingAISamples, setIsGeneratingAISamples] = useState<boolean>(false);
 
   // Define fetchLogs and checkScriptStatus using useCallback before the useEffect
   const fetchLogs = useCallback(async () => {
@@ -160,6 +169,98 @@ const DMAutomationPage: React.FC = () => {
       ...prev,
       [field]: file
     }));
+    
+    // If it's a prompt file, read its content and generate previews
+    if (field === 'dmPromptFile' && file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result as string;
+        setPromptFileContent(content);
+        generateSpintaxPreviews(content);
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const generateSpintaxPreviews = async (promptContent: string) => {
+    if (!promptContent.trim()) return;
+    
+    setIsGeneratingPreviews(true);
+    setShowSpintaxPreview(true);
+    
+    try {
+      const response = await axios.post(getApiUrl('/generate-spintax-previews'), {
+        prompt: promptContent
+      }, {
+        headers: getApiHeaders()
+      });
+      
+      if (response.data.success && response.data.previews) {
+        setSpintaxPreviews(response.data.previews);
+        setSelectedSpintaxIndex(-1);
+        setEditableSpintax('');
+      } else {
+        alert('Failed to generate spintax previews');
+      }
+    } catch (error) {
+      console.error('Error generating spintax previews:', error);
+      alert('Error generating spintax previews');
+    } finally {
+      setIsGeneratingPreviews(false);
+    }
+  };
+
+  const generateAISamples = async () => {
+    if (!promptFileContent.trim()) {
+      alert('Please upload a prompt file first');
+      return;
+    }
+    
+    setIsGeneratingAISamples(true);
+    
+    try {
+      const response = await axios.post(getApiUrl('/generate-ai-spintax-samples'), {
+        prompt: promptFileContent,
+        count: 3
+      }, {
+        headers: getApiHeaders()
+      });
+      
+      if (response.data.success && response.data.samples) {
+        // Replace existing previews with new AI samples
+        setSpintaxPreviews(response.data.samples);
+        setSelectedSpintaxIndex(-1);
+        setEditableSpintax('');
+        
+        // Show message if AI was not used
+        if (!response.data.ai_used && response.data.message) {
+          alert(response.data.message);
+        }
+      } else {
+        alert('Failed to generate AI spintax samples');
+      }
+    } catch (error) {
+      console.error('Error generating AI spintax samples:', error);
+      alert('Error generating AI spintax samples');
+    } finally {
+      setIsGeneratingAISamples(false);
+    }
+  };
+
+  const selectSpintaxOption = (index: number) => {
+    setSelectedSpintaxIndex(index);
+    setEditableSpintax(spintaxPreviews[index]);
+  };
+
+  const confirmSpintaxSelection = () => {
+    if (editableSpintax.trim()) {
+      // Update the custom prompt with the final selected/edited version
+      setFormData(prev => ({
+        ...prev,
+        customPrompt: editableSpintax
+      }));
+      setShowSpintaxPreview(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -172,6 +273,13 @@ const DMAutomationPage: React.FC = () => {
 
     if (!formData.targetFile) {
       alert('Please upload a target accounts file (Excel/CSV) containing the users you want to send DMs to');
+      return;
+    }
+
+    // Check if prompt file was uploaded but spintax not selected
+    if (formData.dmPromptFile && promptFileContent && !formData.customPrompt) {
+      alert('Please select and confirm a spintax template from the uploaded prompt file before starting the automation.');
+      setShowSpintaxPreview(true);
       return;
     }
 
@@ -358,7 +466,7 @@ Make it feel personal and not like spam.`;
 
             <div className="form-group">
               <label htmlFor="dm-prompt-file">
-                DM Prompt File (Text)
+                🎲 DM Prompt File with Spintax (Text)
               </label>
               <input
                 type="file"
@@ -367,12 +475,35 @@ Make it feel personal and not like spam.`;
                 onChange={(e) => e.target.files && handleFileChange('dmPromptFile', e.target.files[0])}
                 disabled={isRunning}
               />
-              <small>Text file containing the DM message template</small>
+              <small>
+                Upload a text file containing spintax templates (e.g., {"{Hello|Hi|Hey} {first_name}!"}).
+                {promptFileContent && (
+                  <span className="spintax-status">
+                    {formData.customPrompt ? 
+                      ' ✅ Spintax template selected and confirmed!' : 
+                      ' ⚠️ Please select a spintax option from the previews.'
+                    }
+                  </span>
+                )}
+              </small>
+              {promptFileContent && !formData.customPrompt && (
+                <button 
+                  type="button" 
+                  className="btn btn-secondary btn-small spintax-preview-btn"
+                  onClick={() => setShowSpintaxPreview(true)}
+                  disabled={isRunning}
+                >
+                  🎲 Choose Spintax Template
+                </button>
+              )}
             </div>
 
             <div className="form-group">
               <label htmlFor="custom-prompt">
-                Custom DM Prompt (Alternative to file upload)
+                {formData.customPrompt && promptFileContent ? 
+                  '✅ Selected Spintax Template (Ready to Use)' : 
+                  'Custom DM Prompt (Alternative to file upload)'
+                }
               </label>
               <textarea
                 id="custom-prompt"
@@ -380,10 +511,28 @@ Make it feel personal and not like spam.`;
                 onChange={(e) => setFormData(prev => ({...prev, customPrompt: e.target.value}))}
                 disabled={isRunning}
                 rows={6}
-                placeholder={defaultPrompt}
+                placeholder={formData.customPrompt && promptFileContent ? 
+                  'Your selected and edited spintax template will appear here...' : 
+                  defaultPrompt
+                }
+                className={formData.customPrompt && promptFileContent ? 'spintax-selected' : ''}
               />
               <small>
-                Custom prompt for AI message generation. Use placeholders like {'{first_name}'}, {'{city}'}, {'{bio}'}
+                {formData.customPrompt && promptFileContent ? (
+                  <>
+                    ✅ Spintax template confirmed and ready for DM automation. 
+                    <button 
+                      type="button" 
+                      className="btn-link"
+                      onClick={() => setShowSpintaxPreview(true)}
+                      disabled={isRunning}
+                    >
+                      Edit Spintax Template
+                    </button>
+                  </>
+                ) : (
+                  <>Custom prompt for AI message generation. Use placeholders like {'{first_name}'}, {'{city}'}, {'{bio}'}</>
+                )}
               </small>
             </div>
 
@@ -480,25 +629,140 @@ Make it feel personal and not like spam.`;
           <h4>Features:</h4>
           <ul>
             <li>✅ AI-powered message personalization</li>
+            <li>✅ Advanced Spintax content variation (NEW)</li>
+            <li>✅ 8 different message structure templates (NEW)</li>
+            <li>✅ Dynamic contextual placeholders (NEW)</li>
             <li>✅ Bulk DM campaigns across multiple accounts</li>
             <li>✅ Dynamic browser opening based on account count in file</li>
             <li>✅ Response tracking and analysis</li>
             <li>✅ Rate limiting and proxy support</li>
             <li>✅ Human-like behavior simulation</li>
             <li>✅ Comprehensive logging and reporting</li>
+            <li>✅ Enhanced ban avoidance through message variation</li>
           </ul>
         </div>
 
         <div className="dm-settings-info">
-          <h4>DM Settings Information:</h4>
+          <h4>Enhanced DM Content Variation:</h4>
           <p>
-            The script uses advanced AI to create personalized messages based on target user profiles. 
-            Default prompt generates professional virtual assistant service offers tailored to each user's 
-            background, location, and interests. Messages are kept under 500 characters and designed 
-            to feel natural and engaging rather than spam-like.
+            The script now uses advanced content variation techniques to avoid spam detection:
+          </p>
+          <ul>
+            <li><strong>Spintax Processing:</strong> Messages use {'{option1|option2|option3}'} syntax for automatic variation</li>
+            <li><strong>8 Message Templates:</strong> Professional, casual, question-based, and story-driven approaches</li>
+            <li><strong>Dynamic Placeholders:</strong> Time-sensitive content like {'{day_of_week}'}, {'{time_of_day}'}, {'{season}'}</li>
+            <li><strong>Business Context:</strong> Industry-specific benefits and value propositions</li>
+            <li><strong>Natural Personalization:</strong> Name, location, and bio integration without repetitive patterns</li>
+          </ul>
+          <p>
+            Each message is structurally unique while maintaining professional quality and relevance to the recipient.
+            This advanced variation system significantly reduces the risk of being flagged as spam by Instagram's algorithms.
           </p>
         </div>
       </div>
+
+      {/* Spintax Preview Modal */}
+      {showSpintaxPreview && (
+        <div className="modal-overlay" onClick={() => setShowSpintaxPreview(false)}>
+          <div className="modal-content spintax-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>🎲 Spintax Preview & Selection</h2>
+              <button 
+                className="modal-close"
+                onClick={() => setShowSpintaxPreview(false)}
+                title="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              {isGeneratingPreviews ? (
+                <div className="loading-spinner">
+                  <p>🔄 Generating spintax variations...</p>
+                </div>
+              ) : (
+                <div className="spintax-container">
+                  <div className="spintax-instructions">
+                    <p><strong>📋 Instructions:</strong></p>
+                    <ol>
+                      <li>Review the generated variations below</li>
+                      <li>Select your preferred option</li>
+                      <li>Edit it if needed</li>
+                      <li>Confirm to use it for DM automation</li>
+                    </ol>
+                    <div className="ai-generation-section">
+                      <button 
+                        className="btn btn-secondary btn-ai-generate"
+                        onClick={generateAISamples}
+                        disabled={isGeneratingAISamples || !promptFileContent}
+                        title="Generate more spintax variations using AI"
+                      >
+                        {isGeneratingAISamples ? '🤖 Generating...' : '🤖 Generate More Samples with AI'}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="spintax-previews-container">
+                    <h3>Generated Variations:</h3>
+                    <div className="spintax-previews">
+                      {spintaxPreviews.map((preview, index) => (
+                        <div 
+                          key={index} 
+                          className={`spintax-option ${selectedSpintaxIndex === index ? 'selected' : ''}`}
+                          onClick={() => selectSpintaxOption(index)}
+                        >
+                          <div className="option-header">
+                            <span className="option-number">Option {index + 1}</span>
+                            {selectedSpintaxIndex === index && <span className="selected-badge">✓ Selected</span>}
+                          </div>
+                          <div className="option-content">
+                            {preview}
+                          </div>
+                          <div className="option-stats">
+                            {preview.length} characters | {preview.split(' ').length} words
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {selectedSpintaxIndex !== -1 && (
+                    <div className="spintax-editor">
+                      <h3>✏️ Edit Selected Option (Optional):</h3>
+                      <textarea
+                        value={editableSpintax}
+                        onChange={(e) => setEditableSpintax(e.target.value)}
+                        rows={6}
+                        placeholder="Edit your selected spintax template here..."
+                        className="spintax-edit-textarea"
+                      />
+                      <div className="editor-stats">
+                        {editableSpintax.length} characters | {editableSpintax.split(' ').length} words
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="spintax-actions">
+                    <button 
+                      className="btn btn-secondary"
+                      onClick={() => setShowSpintaxPreview(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      className="btn btn-primary"
+                      onClick={confirmSpintaxSelection}
+                      disabled={selectedSpintaxIndex === -1 || !editableSpintax.trim()}
+                    >
+                      Confirm & Use This Template
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Positive Responses Modal */}
       {showResponsesModal && (

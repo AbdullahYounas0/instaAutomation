@@ -11,7 +11,7 @@ import datetime
 import traceback
 from instagram_accounts import get_account_details
 from proxy_manager import proxy_manager
-from enhanced_instagram_auth import enhanced_auth
+from simple_instagram_auth_enhanced import EnhancedSimpleAuth, HumanLikeTyping
 from instagram_cookie_manager import cookie_manager
 from stealth_browser_manager import StealthBrowserManager, ensure_proxy_assignment
 
@@ -314,11 +314,24 @@ async def login_instagram_with_cookies_and_2fa(context: BrowserContext, username
             if log_callback:
                 log_callback(f"[{username}] {message}")
         
-        # Use enhanced authentication with cookies and proxy
-        success, auth_info = await enhanced_auth.authenticate_with_cookies_and_proxy(
+        # Get account details including TOTP secret
+        account_data = get_account_details(username)
+        totp_secret = account_data.get('totp_secret') if account_data else None
+        
+        # Get proxy info
+        proxy_string = proxy_manager.get_account_proxy(username)
+        proxy_info = proxy_manager.parse_proxy(proxy_string) if proxy_string else None
+        
+        # Create enhanced simple auth instance
+        auth_system = EnhancedSimpleAuth()
+        
+        # Use enhanced simple authentication with human-like behavior
+        success, auth_info = await auth_system.authenticate_with_human_behavior(
             context=context,
             username=username,
             password=password,
+            totp_secret=totp_secret,
+            proxy_info=proxy_info,
             log_callback=auth_log_callback
         )
         
@@ -418,6 +431,9 @@ async def perform_activities(page, username, duration_minutes, activities, timin
     if log_callback:
         log_callback(f"Activities completed for {username}")
 
+# Initialize human-like typing behavior
+typing_behavior = HumanLikeTyping()
+
 async def scroll_feed(page, scroll_attempts, log_callback=None, username="User", stop_callback=None):
     """Scrolls through the Instagram feed."""
     try:
@@ -435,7 +451,8 @@ async def scroll_feed(page, scroll_attempts, log_callback=None, username="User",
         for i in range(scroll_attempts):
             if stop_callback and stop_callback():
                 break
-            await human_like_scroll(page)
+            # Use human-like scrolling behavior
+            await typing_behavior.human_scroll(page, 'down', None, log_callback)
             await human_like_delay((1, 3), stop_callback)
             
     except Exception as e:
@@ -480,9 +497,10 @@ async def like_reel(page, log_callback=None, username="User", stop_callback=None
             try:
                 like_button = await page.wait_for_selector(selector, timeout=3000)
                 if like_button:
-                    await like_button.click()
+                    # Use human-like clicking behavior
+                    await typing_behavior.human_click(page, selector, log_callback)
                     if log_callback:
-                        log_callback(f"{username}: Liked a reel")
+                        log_callback(f"{username}: Liked a reel with human-like behavior")
                     break
             except:
                 continue
@@ -514,11 +532,11 @@ async def like_feed_post(page, log_callback=None, username="User", stop_callback
             try:
                 like_buttons = await page.query_selector_all(selector)
                 if like_buttons:
-                    # Click a random like button
-                    button = random.choice(like_buttons)
-                    await button.click()
+                    # Click a random like button with human-like behavior
+                    button_index = random.randint(0, len(like_buttons) - 1)
+                    await typing_behavior.human_click(page, f"({selector})[{button_index + 1}]", log_callback)
                     if log_callback:
-                        log_callback(f"{username}: Liked a feed post")
+                        log_callback(f"{username}: Liked a feed post with human-like behavior")
                     break
             except:
                 continue

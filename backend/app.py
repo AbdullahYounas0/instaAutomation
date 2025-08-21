@@ -442,6 +442,233 @@ async def run_daily_post_script(script_id: str):
         cleanup_temp_files(script_id)
 
 # DM Automation Endpoints
+
+# Spintax Preview Endpoint
+@app.post("/api/generate-spintax-previews")
+async def generate_spintax_previews(
+    request: Request,
+    current_user: dict = Depends(verify_token_dependency)
+):
+    """Generate 3 spintax preview variations from a prompt"""
+    try:
+        body = await request.json()
+        prompt = body.get('prompt', '').strip()
+        
+        if not prompt:
+            raise HTTPException(status_code=400, detail={"error": "Prompt is required"})
+        
+        # Import spintax parser
+        from instagram_dm_automation import SpintaxParser
+        
+        # Generate 3 different variations
+        previews = []
+        max_attempts = 20  # Try up to 20 times to get 3 unique variations
+        attempt = 0
+        
+        while len(previews) < 3 and attempt < max_attempts:
+            variation = SpintaxParser.parse(prompt)
+            if variation not in previews:  # Only add unique variations
+                previews.append(variation)
+            attempt += 1
+        
+        # If we couldn't get 3 unique variations, fill with the ones we have
+        while len(previews) < 3:
+            previews.append(SpintaxParser.parse(prompt))
+        
+        return {
+            "success": True,
+            "previews": previews,
+            "original_prompt": prompt
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating spintax previews: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "previews": []
+        }
+
+@app.post("/api/generate-ai-spintax-samples")
+async def generate_ai_spintax_samples(
+    request: Request,
+    current_user: dict = Depends(verify_token_dependency)
+):
+    """Generate template-based spintax samples (AI functionality removed)"""
+    try:
+        body = await request.json()
+        prompt = body.get('prompt', '').strip()
+        count = body.get('count', 3)
+        
+        if not prompt:
+            raise HTTPException(status_code=400, detail={"error": "Prompt is required"})
+        
+        # Import required modules
+        from instagram_dm_automation import SpintaxParser
+        
+        # Generate template-based spintax variations (since AI is removed)
+        samples = []
+        
+        # Template-based spintax variations for different message types
+        template_variations = [
+            "{Hello|Hi|Hey|Good day} {first_name}! I {noticed|saw|came across|found} your {profile|work|page|content} and {thought|figured|believe} you might be {interested|curious} in {virtual assistant services|VA support|professional assistance|business solutions}. {Worth a quick chat?|Let's connect!|Interested in learning more?|Would love to discuss this!}",
+            
+            "{Hey|Hi there|Hello} {first_name}! {Looking to connect with|Reaching out to|Connecting with} {business owners|entrepreneurs|professionals} in {city|your area|the region}. I {provide|offer|specialize in} {VA services|virtual assistance|administrative support} that could {help streamline your operations|save you valuable time|boost your productivity}. {Interested?|Let's chat!|Worth discussing?}",
+            
+            "{Good {morning|afternoon|day}} {first_name}! I {help|assist|support} {businesses|entrepreneurs|professionals} with {daily operations|administrative tasks|time-consuming work}. {Based on your profile|From what I see|Looking at your work}, this could be {perfect for you|exactly what you need|very beneficial}. {Let me know if you'd like to hear more|Worth a conversation?|Interested in connecting?}",
+            
+            "{Hi|Hello|Hey there} {first_name}! {Fellow entrepreneur here!|Local business supporter here!|Professional in your network!} I {specialize in|focus on|excel at} {helping businesses grow|streamlining operations|providing administrative support} through {comprehensive VA services|professional virtual assistance|tailored business solutions}. {Could this be helpful?|Let's explore how I can help|Worth a brief discussion?}",
+            
+            "{Hello|Hi|Greetings} {first_name}! I {noticed you're in|see you're based in|connect with professionals in} {city}. My {VA services|virtual assistance|business support} help {local entrepreneurs|area businesses|regional companies} {save time|increase efficiency|focus on growth}. {Interested in learning more?|Worth connecting about this?|Let's chat about opportunities!}",
+            
+            "{Hey|Hi|Hello} {first_name}! {Quick question|Reaching out because|Connecting with you since} - are you {looking for ways to|interested in|needing help with} {saving time|streamlining operations|reducing administrative burden}? I {provide|offer|deliver} {professional VA services|comprehensive virtual assistance|business support solutions} that could {make a real difference|be exactly what you need|transform your productivity}. {Let's talk!|Interested?|Worth exploring?}"
+        ]
+        
+        for i in range(min(count, len(template_variations))):
+            try:
+                # Use one of the template variations
+                template_spintax = template_variations[i % len(template_variations)]
+                
+                # Parse the spintax to generate a sample variation
+                sample_variation = SpintaxParser.parse(template_spintax)
+                samples.append(sample_variation)
+                
+                logger.info(f"✅ Generated template-based spintax sample {i+1}")
+                    
+            except Exception as e:
+                logger.error(f"Error generating template spintax sample {i+1}: {e}")
+                break
+        
+        # If we still need more samples, generate additional ones with slight modifications
+        while len(samples) < count and len(samples) < 10:  # Max 10 samples
+            try:
+                # Pick a random template and parse it
+                import random
+                random_template = random.choice(template_variations)
+                sample_variation = SpintaxParser.parse(random_template)
+                
+                # Avoid exact duplicates
+                if sample_variation not in samples:
+                    samples.append(sample_variation)
+                    
+            except Exception as e:
+                logger.error(f"Error generating additional spintax sample: {e}")
+                break
+        
+        # If we still don't have enough samples, create more based on the original prompt
+        if len(samples) < count:
+            logger.info("AI generation failed, using advanced spintax fallback based on original prompt")
+            samples = []
+            
+            # Analyze the original prompt to extract key concepts
+            prompt_lower = prompt.lower()
+            
+            # Create comprehensive spintax based on the original prompt
+            def create_advanced_spintax_from_prompt(prompt_text, variation_num):
+                # Base structure with extensive variations
+                base_template = prompt_text
+                
+                # Add comprehensive spintax variations to common words and phrases
+                spintax_replacements = {
+                    # Greetings - extensive variations
+                    r'\b(hello|hi|hey|greetings?)\b': '{Hello|Hi|Hey|Greetings|Good morning|Good afternoon|What\'s up|Hey there}',
+                    
+                    # Action verbs - comprehensive variations
+                    r'\b(noticed|saw|found|came across|discovered|spotted)\b': '{noticed|saw|found|came across|discovered|spotted|observed|identified|encountered}',
+                    r'\b(help|assist|support|work with)\b': '{help|assist|support|work with|collaborate with|partner with|aid}',
+                    r'\b(offer|provide|deliver|give)\b': '{offer|provide|deliver|give|supply|present|bring}',
+                    r'\b(specialize|focus|excel|concentrate)\b': '{specialize|focus|excel|concentrate|expertise lies|skilled}',
+                    
+                    # Business terms - extensive variations
+                    r'\b(business|company|venture|enterprise)\b': '{business|company|venture|enterprise|organization|firm|operation}',
+                    r'\b(services|solutions|support|assistance|help)\b': '{services|solutions|support|assistance|help|expertise|capabilities|offerings}',
+                    r'\b(virtual assistant|VA|assistant)\b': '{virtual assistant|VA|remote assistant|digital assistant|administrative support|business support}',
+                    
+                    # Descriptive words - comprehensive variations
+                    r'\b(professional|skilled|experienced|expert)\b': '{professional|skilled|experienced|expert|qualified|competent|proficient}',
+                    r'\b(efficient|effective|productive|streamlined)\b': '{efficient|effective|productive|streamlined|optimized|smooth|systematic}',
+                    r'\b(quality|excellent|outstanding|exceptional)\b': '{quality|excellent|outstanding|exceptional|superior|top-notch|premium}',
+                    r'\b(reliable|dependable|trustworthy|consistent)\b': '{reliable|dependable|trustworthy|consistent|steadfast|solid|proven}',
+                    
+                    # Tasks and work - extensive variations
+                    r'\b(tasks|work|projects|duties|responsibilities)\b': '{tasks|work|projects|duties|responsibilities|assignments|operations|activities}',
+                    r'\b(manage|handle|oversee|coordinate)\b': '{manage|handle|oversee|coordinate|supervise|organize|streamline}',
+                    r'\b(administrative|admin|clerical|office)\b': '{administrative|admin|clerical|office|operational|business|organizational}',
+                    
+                    # Time and efficiency - comprehensive variations
+                    r'\b(time|schedule|deadline|timeline)\b': '{time|schedule|deadline|timeline|timeframe|planning|organization}',
+                    r'\b(save|reduce|minimize|optimize)\b': '{save|reduce|minimize|optimize|streamline|improve|enhance}',
+                    r'\b(busy|overwhelmed|swamped|loaded)\b': '{busy|overwhelmed|swamped|loaded|stretched|packed|hectic}',
+                    
+                    # Communication and connection - extensive variations
+                    r'\b(chat|talk|discuss|connect|communicate)\b': '{chat|talk|discuss|connect|communicate|speak|converse|reach out}',
+                    r'\b(interested|curious|keen|eager)\b': '{interested|curious|keen|eager|intrigued|attracted|drawn to}',
+                    r'\b(worth|deserve|merit|valuable)\b': '{worth|deserve|merit|valuable|worthwhile|beneficial|advantageous}',
+                    
+                    # Call to actions - extensive variations
+                    r'\b(let me know|reach out|get in touch|contact me)\b': '{let me know|reach out|get in touch|contact me|drop me a line|feel free to message|don\'t hesitate to ask}',
+                    r'\b(worth a chat|let\'s connect|interested to discuss)\b': '{worth a chat|let\'s connect|interested to discuss|happy to talk|worth exploring|let\'s talk}',
+                    
+                    # Industry specific - comprehensive variations
+                    r'\b(marketing|sales|promotion|advertising)\b': '{marketing|sales|promotion|advertising|outreach|campaigns|brand building}',
+                    r'\b(content|social media|digital|online)\b': '{content|social media|digital|online|web-based|internet|digital marketing}',
+                    r'\b(customer|client|lead|prospect)\b': '{customer|client|lead|prospect|contact|potential client|target audience}',
+                    
+                    # Results and benefits - extensive variations
+                    r'\b(grow|increase|boost|improve|enhance)\b': '{grow|increase|boost|improve|enhance|elevate|advance|expand}',
+                    r'\b(results|outcomes|success|achievements)\b': '{results|outcomes|success|achievements|progress|accomplishments|gains}',
+                    r'\b(profit|revenue|income|earnings)\b': '{profit|revenue|income|earnings|returns|financial gains|bottom line}',
+                }
+                
+                # Apply spintax replacements using regex
+                import re
+                enhanced_template = base_template
+                
+                for pattern, replacement in spintax_replacements.items():
+                    enhanced_template = re.sub(pattern, replacement, enhanced_template, flags=re.IGNORECASE)
+                
+                # Add variation-specific customizations
+                if variation_num == 1:
+                    # More professional tone
+                    enhanced_template = enhanced_template.replace('{Hello|Hi|Hey|Greetings|Good morning|Good afternoon|What\'s up|Hey there}', 
+                                                                '{Good morning|Good afternoon|Hello|Greetings|Hi there}')
+                elif variation_num == 2:
+                    # More casual tone
+                    enhanced_template = enhanced_template.replace('{Hello|Hi|Hey|Greetings|Good morning|Good afternoon|What\'s up|Hey there}', 
+                                                                '{Hey|Hi|What\'s up|Hey there|Hello}')
+                elif variation_num == 3:
+                    # Balanced approach
+                    enhanced_template = enhanced_template.replace('{Hello|Hi|Hey|Greetings|Good morning|Good afternoon|What\'s up|Hey there}', 
+                                                                '{Hi|Hello|Hey|Greetings}')
+                
+                return enhanced_template
+            
+            # Generate 3 comprehensive spintax variations based on the original prompt
+            for i in range(min(count, 3)):
+                enhanced_spintax_template = create_advanced_spintax_from_prompt(prompt, i + 1)
+                
+                # Parse the enhanced template to create a sample variation
+                sample_variation = SpintaxParser.parse(enhanced_spintax_template)
+                samples.append(sample_variation)
+                
+            logger.info(f"✅ Generated {len(samples)} comprehensive spintax samples based on original prompt")
+        
+        return {
+            "success": True,
+            "samples": samples,
+            "original_prompt": prompt,
+            "ai_used": False,  # AI is removed
+            "message": "Template-based spintax samples (OpenAI functionality removed)"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating AI spintax samples: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "samples": []
+        }
+
 @app.post("/api/dm-automation/start")
 async def start_dm_automation(
     background_tasks: BackgroundTasks,

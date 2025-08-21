@@ -1,0 +1,106 @@
+{
+  "cookies": [
+    {
+      "name": "datr",
+      "value": "laalaDyra7VSHnZoQpcw1g6N",
+      "domain": ".instagram.com",
+      "path": "/",
+      "expires": 1790246550.533283,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "ig_did",
+      "value": "A1BA0E1E-4A0E-442B-833B-155732BC8AB5",
+      "domain": ".instagram.com",
+      "path": "/",
+      "expires": 1787222575.792978,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "ig_nrcb",
+      "value": "1",
+      "domain": ".instagram.com",
+      "path": "/",
+      "expires": 1787222554.618055,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "wd",
+      "value": "1366x768",
+      "domain": ".instagram.com",
+      "path": "/",
+      "expires": 1756291355,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "dpr",
+      "value": "1.0000000298023224",
+      "domain": ".instagram.com",
+      "path": "/",
+      "expires": 1756291375,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "mid",
+      "value": "aKWmlQALAAFQio0WfHcOGVBitgBO",
+      "domain": ".instagram.com",
+      "path": "/",
+      "expires": 1790246555,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "csrftoken",
+      "value": "Ffi4YYquHWRliLcPuQXfKTOFVRhbTbfc",
+      "domain": ".instagram.com",
+      "path": "/",
+      "expires": 1790246575.792709,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "rur",
+      "value": "\"NHA\\05458435841481\\0541787222575:01fec2bfa9305f205f925445410f8abf10896c0f2192a889bb1947b185132c83308b3d78\"",
+      "domain": ".instagram.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "ds_user_id",
+      "value": "58435841481",
+      "domain": ".instagram.com",
+      "path": "/",
+      "expires": 1763462575.792832,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "sessionid",
+      "value": "58435841481%3AqhXsE6acNFHkRK%3A0%3AAYd6S-s81w9vXJVM4LFmVEjbhD2vq9dTLaKyr28k8w",
+      "domain": ".instagram.com",
+      "path": "/",
+      "expires": 1787222575.793016,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "timestamp": "2025-08-20T15:42:58.027235",
+  "url": "https://www.instagram.com/accounts/suspended/?next=https%3A%2F%2Fwww.instagram.com%2Faccounts%2Fonetap%2F%3Fnext%3D%252F%26__coig_ufac%3D1"
+}

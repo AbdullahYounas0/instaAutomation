@@ -9,12 +9,12 @@ import logging
 import pandas as pd
 import chardet
 import pyotp
-import re
 from datetime import datetime
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from openai import OpenAI
 import time
 from proxy_manager import proxy_manager
-from simple_instagram_auth_enhanced import enhanced_simple_auth, HumanLikeTyping
+from enhanced_instagram_auth import enhanced_auth
 from instagram_cookie_manager import cookie_manager
 from stealth_browser_manager import StealthBrowserManager, ensure_proxy_assignment
 
@@ -26,359 +26,14 @@ MAX_PARALLEL_ACCOUNTS = 10
 csv_lock = threading.Lock()
 used_proxies = set()
 
-class SpintaxParser:
-    """Advanced Spintax parser for message variation"""
-    
-    @staticmethod
-    def parse(text):
-        """
-        Parse spintax text and return a random variation
-        Example: {Hello|Hi|Hey} -> randomly returns "Hello", "Hi", or "Hey"
-        Supports nested spintax: {Hello {there|friend}|Hi {buddy|pal}} 
-        """
-        def replace_spintax(match):
-            content = match.group(1)
-            options = SpintaxParser._split_options(content)
-            chosen = random.choice(options).strip()
-            # Recursively parse nested spintax
-            return SpintaxParser.parse(chosen)
-        
-        # Process spintax from innermost to outermost
-        while '{' in text and '|' in text and '}' in text:
-            # Find the innermost spintax pattern
-            pattern = r'\{([^{}]*?\|[^{}]*?)\}'
-            if not re.search(pattern, text):
-                break
-            text = re.sub(pattern, replace_spintax, text)
-        
-        return text.strip()
-    
-    @staticmethod
-    def _split_options(content):
-        """Split spintax options, handling nested braces"""
-        options = []
-        current_option = ""
-        brace_count = 0
-        
-        for char in content:
-            if char == '{':
-                brace_count += 1
-                current_option += char
-            elif char == '}':
-                brace_count -= 1
-                current_option += char
-            elif char == '|' and brace_count == 0:
-                if current_option.strip():
-                    options.append(current_option.strip())
-                current_option = ""
-            else:
-                current_option += char
-        
-        if current_option.strip():
-            options.append(current_option.strip())
-        
-        return options if options else [content]
-
-class MessageTemplateEngine:
-    """Enhanced message template engine with multiple variations"""
-    
-    def __init__(self):
-        # Message structure templates
-        self.message_templates = [
-            # Professional approach
-            "{greeting} {first_name}! I {noticed_verb} your {profile_reference} and {thought_process}. I {help_verb} {business_owners} with {service_description}. {interest_inquiry}",
-            
-            # Casual approach  
-            "{casual_greeting} {first_name}! {location_context} I {provide_verb} {service_type} that {benefit_description}. {connection_request}",
-            
-            # Value-focused approach
-            "{professional_greeting} {first_name}, I {help_verb} {target_audience} {achieve_goal} through {service_offering}. {time_reference} {call_to_action}",
-            
-            # Question-based approach
-            "{greeting} {first_name}! Are you {challenge_question}? I {specialize_verb} in {solution_area} for {business_type}. {worth_chat}",
-            
-            # Local connection approach
-            "{location_greeting} {first_name}! {local_connection} I {offer_verb} {specialized_service} to {local_businesses}. {interest_check}",
-            
-            # Brief and direct
-            "{short_greeting} {first_name}, {quick_introduction}. {value_proposition}. {simple_cta}",
-            
-            # Story-based approach
-            "{warm_greeting} {first_name}! I've been {experience_context} and {discovered_insight}. {service_introduction} {collaboration_invite}",
-            
-            # Results-focused approach
-            "{professional_greeting} {first_name}, I {help_verb} {client_type} {achieve_result} by {methodology}. {day_reference} {meeting_suggestion}"
-        ]
-        
-        # Spintax components for dynamic content
-        self.spintax_components = {
-            'greeting': '{Hello|Hi|Hey|Good day}',
-            'casual_greeting': '{Hey|Hi there|Hello|What\'s up}',
-            'professional_greeting': '{Hello|Good morning|Good afternoon|Greetings}',
-            'warm_greeting': '{Hello|Hi there|Hey}',
-            'short_greeting': '{Hi|Hey|Hello}',
-            'location_greeting': '{Hey|Hello|Hi}',
-            
-            'noticed_verb': '{noticed|saw|came across|spotted|found}',
-            'thought_process': '{thought you might be interested in|figured you could benefit from|believe you\'d find value in}',
-            'help_verb': '{help|assist|support|work with}',
-            'provide_verb': '{provide|offer|deliver|specialize in}',
-            'specialize_verb': '{specialize|focus|excel}',
-            'offer_verb': '{offer|provide|deliver}',
-            
-            'profile_reference': '{profile|work|business|page|content}',
-            'business_owners': '{business owners|entrepreneurs|professionals|companies}',
-            'target_audience': '{business owners|entrepreneurs|professionals like yourself|growing companies}',
-            'client_type': '{businesses|entrepreneurs|professionals|companies}',
-            'local_businesses': '{local businesses|area entrepreneurs|regional companies}',
-            
-            'service_description': '{virtual assistant services|professional VA support|administrative assistance|business support solutions}',
-            'service_type': '{VA services|virtual assistance|business support|administrative help}',
-            'service_offering': '{comprehensive VA services|professional virtual assistance|tailored business support}',
-            'specialized_service': '{specialized VA services|professional virtual assistance|comprehensive business support}',
-            'solution_area': '{helping with administrative tasks|streamlining business operations|providing virtual assistance}',
-            
-            'benefit_description': '{could streamline your operations|might save you valuable time|would boost your productivity}',
-            'value_proposition': '{I help streamline business operations|My VA services boost productivity|I provide time-saving business solutions}',
-            'achieve_goal': '{save time|increase productivity|streamline operations|focus on growth}',
-            'achieve_result': '{save 10+ hours weekly|increase operational efficiency|focus on core business activities}',
-            'methodology': '{handling administrative tasks|managing daily operations|streamlining workflows}',
-            
-            'interest_inquiry': '{Would you be interested in learning more?|Could this be helpful for your business?|Worth a quick conversation?|Interested in hearing more details?}',
-            'connection_request': '{Let\'s connect and discuss!|Would love to chat about it!|Interested in connecting?|Let me know if you\'d like to learn more!}',
-            'call_to_action': '{let\'s have a quick chat|would love to connect|let\'s discuss how I can help|interested in learning more?}',
-            'worth_chat': '{Worth a quick chat?|Would love to discuss this with you|Interested in a brief conversation?|Let\'s connect and talk about it}',
-            'interest_check': '{Interested in learning more?|Would you like to hear about it?|Could this be helpful?|Worth discussing?}',
-            'simple_cta': '{Let\'s connect!|Interested?|Let\'s chat!|Worth a conversation?}',
-            'collaboration_invite': '{Would love to explore how we could work together|Let\'s discuss potential collaboration|Interested in connecting?}',
-            'meeting_suggestion': '{Could we schedule a brief call?|Would you be open to a quick chat?|Let\'s connect and discuss|Worth a conversation?}',
-            
-            'challenge_question': '{looking for ways to save time|struggling with administrative tasks|wanting to focus more on core business|needing help with daily operations}',
-            'business_type': '{growing businesses|ambitious entrepreneurs|busy professionals}',
-            'experience_context': '{helping businesses grow|working with entrepreneurs|supporting business operations}',
-            'discovered_insight': '{noticed how much time admin tasks consume|seen how VA services transform productivity|learned the power of proper business support}',
-            'service_introduction': '{That\'s where my VA services come in|This is exactly what I help with|My virtual assistance could be perfect for this}',
-            'quick_introduction': '{I\'m a virtual assistant|I provide VA services|I help with business operations}',
-            
-            'location_context': '{Looking to connect with local business owners.|Reaching out to area entrepreneurs.|Connecting with professionals in the region.}',
-            'local_connection': '{Fellow local entrepreneur here!|Connecting with area business owners.|Working with local professionals.}',
-            'time_reference': '{This week|Today|Right now|Currently}',
-            'day_reference': '{This {Monday|Tuesday|Wednesday|Thursday|Friday}|Today|This week}'
-        }
-        
-        # Dynamic placeholders with more variety
-        self.dynamic_placeholders = {
-            'day_of_week': lambda: datetime.now().strftime('%A'),
-            'time_of_day': self._get_time_of_day,
-            'month': lambda: datetime.now().strftime('%B'),
-            'season': self._get_season,
-            'compliment': self._get_random_compliment,
-            'business_benefit': self._get_business_benefit,
-            'time_saver': self._get_time_saver,
-            'productivity_boost': self._get_productivity_boost,
-            'growth_opportunity': self._get_growth_opportunity,
-            'efficiency_gain': self._get_efficiency_gain
-        }
-    
-    def _get_time_of_day(self):
-        """Get contextual time of day"""
-        hour = datetime.now().hour
-        if hour < 12:
-            return random.choice(['morning', 'early day', 'start of the day'])
-        elif hour < 17:
-            return random.choice(['afternoon', 'mid-day', 'this time of day'])
-        else:
-            return random.choice(['evening', 'end of the day', 'tonight'])
-    
-    def _get_season(self):
-        """Get current season"""
-        month = datetime.now().month
-        if month in [12, 1, 2]:
-            return 'winter'
-        elif month in [3, 4, 5]:
-            return 'spring'
-        elif month in [6, 7, 8]:
-            return 'summer'
-        else:
-            return 'fall'
-    
-    def _get_random_compliment(self):
-        """Get business-appropriate compliment"""
-        compliments = [
-            'impressive profile', 'great work', 'interesting business',
-            'solid professional presence', 'engaging content', 'strong brand',
-            'excellent business focus', 'innovative approach', 'professional setup'
-        ]
-        return random.choice(compliments)
-    
-    def _get_business_benefit(self):
-        """Get random business benefit"""
-        benefits = [
-            'more time for strategic planning', 'freedom to focus on growth',
-            'reduced administrative burden', 'improved work-life balance',
-            'enhanced operational efficiency', 'streamlined daily operations'
-        ]
-        return random.choice(benefits)
-    
-    def _get_time_saver(self):
-        """Get time-saving reference"""
-        time_savers = [
-            '10+ hours per week', '2-3 hours daily', 'significant time',
-            'valuable hours', 'precious time', '15-20 hours weekly'
-        ]
-        return random.choice(time_savers)
-    
-    def _get_productivity_boost(self):
-        """Get productivity improvement reference"""
-        boosts = [
-            'double your productivity', 'increase efficiency by 50%',
-            'boost your output significantly', 'maximize your effectiveness',
-            'optimize your performance', 'enhance your productivity'
-        ]
-        return random.choice(boosts)
-    
-    def _get_growth_opportunity(self):
-        """Get growth-focused reference"""
-        opportunities = [
-            'scale your business faster', 'accelerate growth',
-            'expand your reach', 'unlock new opportunities',
-            'achieve bigger goals', 'reach the next level'
-        ]
-        return random.choice(opportunities)
-    
-    def _get_efficiency_gain(self):
-        """Get efficiency improvement reference"""
-        gains = [
-            'streamlined workflows', 'optimized processes',
-            'automated routine tasks', 'simplified operations',
-            'improved systems', 'enhanced efficiency'
-        ]
-        return random.choice(gains)
-    
-    def generate_enhanced_message(self, user_data):
-        """Generate enhanced message with spintax and dynamic placeholders"""
-        try:
-            # Get user data with fallbacks
-            first_name = user_data.get('first_name', user_data.get('username', 'there'))
-            city = user_data.get('city', '')
-            bio = user_data.get('bio', '')
-            username = user_data.get('username', '')
-            
-            # Select random template
-            template = random.choice(self.message_templates)
-            
-            # Replace spintax components
-            for component, spintax in self.spintax_components.items():
-                placeholder = f'{{{component}}}'
-                if placeholder in template:
-                    parsed_value = SpintaxParser.parse(spintax)
-                    template = template.replace(placeholder, parsed_value)
-            
-            # Replace standard placeholders
-            template = template.replace('{first_name}', first_name)
-            
-            # Add location context if available
-            if city and city.strip():
-                location_context = f"I noticed you're in {city}. "
-                template = template.replace('{location_context}', location_context)
-                template = template.replace('{local_connection}', f"Fellow {city} entrepreneur here! ")
-            else:
-                template = template.replace('{location_context}', '')
-                template = template.replace('{local_connection}', '')
-            
-            # Replace dynamic placeholders
-            for placeholder, generator in self.dynamic_placeholders.items():
-                placeholder_pattern = f'{{{placeholder}}}'
-                if placeholder_pattern in template:
-                    value = generator() if callable(generator) else generator
-                    template = template.replace(placeholder_pattern, str(value))
-            
-            # Clean up any remaining unfilled placeholders
-            template = re.sub(r'\{[^}]*\}', '', template)
-            
-            # Clean up extra spaces and formatting
-            template = ' '.join(template.split())
-            template = template.replace(' .', '.').replace(' ,', ',').replace(' !', '!').replace(' ?', '?')
-            
-            # Ensure proper punctuation
-            if not template.endswith(('.', '!', '?')):
-                template += '.'
-            
-            return template
-            
-        except Exception as e:
-            # Fallback to simple template if enhanced generation fails
-            return self._generate_simple_fallback(first_name, city)
-    
-    def _generate_simple_fallback(self, first_name, city):
-        """Simple fallback message generation"""
-        greetings = ['Hello', 'Hi', 'Hey']
-        actions = ['noticed your profile', 'came across your page', 'saw your work']
-        services = ['virtual assistant services', 'VA support', 'business assistance']
-        closings = ['Interested in learning more?', 'Worth a quick chat?', 'Let\'s connect!']
-        
-        greeting = random.choice(greetings)
-        action = random.choice(actions)
-        service = random.choice(services)
-        closing = random.choice(closings)
-        
-        message = f"{greeting} {first_name}! I {action} and thought you might be interested in {service}. {closing}"
-        
-        if city:
-            message = message.replace(f"{greeting} {first_name}!", 
-                                    f"{greeting} {first_name}! I noticed you're in {city} and")
-        
-        return message
-
-    def add_spintax_variations(self, message):
-        """Add spintax variations to an existing message"""
-        import re
-        
-        # Common word replacements for spintax
-        replacements = {
-            'Hello': '{Hello|Hi|Hey|Greetings}',
-            'Hi': '{Hi|Hello|Hey|Good day}',
-            'Hey': '{Hey|Hi|Hello|What\'s up}',
-            'noticed': '{noticed|saw|came across|spotted|found}',
-            'help': '{help|assist|support|work with}',
-            'interested': '{interested|curious|keen}',
-            'business': '{business|company|venture|enterprise}',
-            'services': '{services|solutions|support|assistance}',
-            'great': '{great|excellent|amazing|fantastic}',
-            'work': '{work|business|projects|endeavors}',
-            'chat': '{chat|talk|conversation|discussion}',
-            'connect': '{connect|chat|talk|reach out}',
-            'offering': '{offering|providing|delivering}',
-            'help': '{help|assist|support}',
-            'worth': '{worth|deserve|merit}',
-            'quick': '{quick|brief|short}',
-            'let me know': '{let me know|feel free to reach out|drop me a line}',
-            'Best': '{Best|Kind|Warm}',
-            'regards': '{regards|wishes|greetings}'
-        }
-        
-        # Apply replacements
-        enhanced_message = message
-        for word, spintax in replacements.items():
-            # Use word boundaries to avoid partial matches
-            pattern = r'\b' + re.escape(word) + r'\b'
-            enhanced_message = re.sub(pattern, spintax, enhanced_message, flags=re.IGNORECASE)
-        
-        return enhanced_message
-
 class DMAutomationEngine:
-    def __init__(self, log_callback=None, stop_callback=None, enable_ai=False):
+    def __init__(self, log_callback=None, stop_callback=None, enable_ai=True):
         self.log_callback = log_callback or print
         self.stop_callback = stop_callback or (lambda: False)
-        self.enable_ai = False  # Always disabled since OpenAI is removed
+        self.enable_ai = enable_ai
         self.client = None
         self.sent_dms = []
         self.positive_responses = []
-        self.typing_behavior = HumanLikeTyping()  # Initialize human-like typing
-        
-        # Initialize enhanced message template engine
-        self.template_engine = MessageTemplateEngine()
-        self.log("🚀 Enhanced DM Template Engine initialized with spintax and dynamic placeholders", "INFO")
         
     def log(self, message, level="INFO"):
         """Log message with timestamp"""
@@ -389,6 +44,50 @@ class DMAutomationEngine:
     async def update_visual_status(self, page, status_text, account_number, step=None):
         """Visual status updates disabled for VPS deployment"""
         pass  # No-op for headless mode
+        
+    def setup_openai_client(self):
+        """Setup AI client for message generation"""
+        # Skip AI setup if disabled
+        if not self.enable_ai:
+            self.log("🚫 AI client disabled - using manual message templates only", "INFO")
+            self.client = None
+            return True
+            
+        try:
+            # Always use the default DeepSeek API key
+            deepseek_key = 'sk-0307c2f76e434a19aaef94e76c017fca'
+            self.log("Using default DeepSeek API key for AI-powered message generation")
+            
+            # Initialize OpenAI client with DeepSeek endpoint
+            try:
+                # Use the simplest initialization possible
+                self.client = OpenAI(
+                    api_key=deepseek_key,
+                    base_url="https://api.deepseek.com"
+                )
+                self.log("✅ DeepSeek AI client initialized successfully")
+                return True
+                
+            except Exception as init_error:
+                self.log(f"❌ OpenAI client initialization failed: {init_error}", "WARNING")
+                
+                # Try alternative initialization without base_url parameter
+                try:
+                    self.client = OpenAI(api_key=deepseek_key)
+                    # Manually set the base URL after initialization
+                    self.client.base_url = "https://api.deepseek.com"
+                    self.log("✅ DeepSeek AI client initialized with fallback method")
+                    return True
+                except Exception as fallback_error:
+                    self.log(f"❌ Fallback initialization also failed: {fallback_error}", "WARNING")
+                    raise fallback_error
+            
+        except Exception as e:
+            self.log(f"❌ Failed to setup AI client: {e}", "ERROR")
+            self.log("⚠️ AI-powered message generation will be disabled", "WARNING")
+            self.log("ℹ️ The script will continue with manual message templates", "INFO")
+            self.client = None
+            return True  # Return True to allow script to continue
     
     def get_account_proxy(self, username):
         """Get the assigned proxy for an account"""
@@ -599,30 +298,44 @@ Make it feel personal and not like spam."""
         return default_prompt
     
     def generate_message(self, user_data, prompt_template):
-        """Generate personalized message using enhanced templates and spintax"""
+        """Generate personalized message using AI or fallback templates"""
         try:
             city = user_data.get('city', '') or "your area"
             bio = user_data.get('bio', '') or "your work"
             first_name = user_data.get('first_name', user_data.get('username', 'there'))
-            username = user_data.get('username', 'user')
             
-            self.log(f"🔄 Generating message for {first_name} ({username}) in {city}", "DEBUG")
+            # Check if AI client is available and AI is enabled
+            if not self.client or not self.enable_ai:
+                self.log("Using template-based message generation", "INFO")
+                return self._generate_template_message(first_name, city, bio)
             
-            # Use enhanced template engine with spintax and dynamic placeholders
-            self.log(f"🎨 Using enhanced template engine for {first_name}", "DEBUG")
-            enhanced_message = self.template_engine.generate_enhanced_message(user_data)
-            
-            self.log(f"✅ Enhanced template message for {first_name}: {enhanced_message[:50]}...", "DEBUG")
-            return enhanced_message
-            
+            # Try AI-powered generation
+            try:
+                prompt = f"{prompt_template}\nUser data: city: {city}, bio: {bio}, first_name: {first_name}"
+                
+                response = self.client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[
+                        {"role": "system", "content": "Write personalized Instagram DMs. Keep under 500 characters."},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                message = response.choices[0].message.content.strip()
+                self.log("✅ AI-generated message created", "DEBUG")
+                return message
+                
+            except Exception as ai_error:
+                self.log(f"AI message generation failed: {ai_error}", "WARNING")
+                self.log("Falling back to template message", "INFO")
+                return self._generate_template_message(first_name, city, bio)
+        
         except Exception as e:
-            self.log(f"❌ Message generation error for {user_data.get('username', 'unknown')}: {e}", "WARNING")
-            # Final fallback to simple template
+            self.log(f"Message generation error: {e}", "WARNING")
             first_name = user_data.get('first_name', user_data.get('username', 'there'))
-            return self._generate_simple_template_message(first_name, city, bio)
+            return self._generate_template_message(first_name, "", "")
     
-    def _generate_simple_template_message(self, first_name, city, bio):
-        """Generate message using simple templates (final fallback)"""
+    def _generate_template_message(self, first_name, city, bio):
+        """Generate message using simple templates"""
         templates = [
             f"Hey {first_name}! Noticed your profile and thought you might be interested in professional VA services. Would love to connect!",
             f"Hi {first_name}! I help business owners like yourself with virtual assistance. Interested in learning more?",
@@ -1364,22 +1077,11 @@ Make it feel personal and not like spam."""
             def auth_log_callback(message):
                 self.log(f"[{username}] {message}")
             
-            # Get account details including TOTP secret
-            from instagram_accounts import get_account_details
-            account_data = get_account_details(username)
-            totp_secret = account_data.get('totp_secret') if account_data else None
-            
-            # Get proxy info
-            proxy_string = proxy_manager.get_account_proxy(username)
-            proxy_info = proxy_manager.parse_proxy(proxy_string) if proxy_string else None
-            
-            # Use enhanced simple authentication with human-like behavior
-            success, auth_info = await enhanced_simple_auth.authenticate_with_human_behavior(
+            # Use enhanced authentication with cookies and proxy
+            success, auth_info = await enhanced_auth.authenticate_with_cookies_and_proxy(
                 context=context,
                 username=username,
                 password=password,
-                totp_secret=totp_secret,
-                proxy_info=proxy_info,
                 log_callback=auth_log_callback
             )
             
@@ -1401,36 +1103,25 @@ Make it feel personal and not like spam."""
             return False
     
     async def send_dm(self, page, username, message):
-        """Send DM to user with retry logic and enhanced logging"""
+        """Send DM to user with retry logic"""
         max_retries = 3
-        
-        self.log(f"📨 Starting DM send process to @{username}", "INFO")
-        self.log(f"📝 Message preview: {message[:100]}{'...' if len(message) > 100 else ''}", "INFO")
         
         for attempt in range(max_retries):
             try:
-                self.log(f"🔄 Sending DM to @{username} (attempt {attempt + 1}/{max_retries})", "INFO")
+                self.log(f"Sending DM to @{username} (attempt {attempt + 1}/{max_retries})")
                 
                 # Navigate to profile
-                profile_url = f"{INSTAGRAM_URL}{username}/"
-                self.log(f"🌐 Navigating to profile: {profile_url}", "DEBUG")
-                
-                if not await self.safe_goto(page, profile_url):
-                    self.log(f"❌ Failed to navigate to @{username} profile", "ERROR")
+                if not await self.safe_goto(page, f"{INSTAGRAM_URL}{username}/"):
                     return "NAVIGATION_FAILED"
                 
                 # Check if profile exists
                 if await page.query_selector("text=Sorry, this page isn't available."):
-                    self.log(f"❌ Profile @{username} not found or not available", "WARNING")
                     return "USER_NOT_FOUND"
                 
                 # Wait for profile to load
-                self.log(f"⏳ Waiting for @{username} profile to load...", "DEBUG")
                 try:
                     await page.wait_for_selector("header, main, article", timeout=20000)
-                    self.log(f"✅ Profile @{username} loaded successfully", "DEBUG")
                 except:
-                    self.log(f"⏰ Profile @{username} load timeout", "WARNING")
                     return "PROFILE_LOAD_TIMEOUT"
                 
                 # Find and click message button
@@ -1448,32 +1139,26 @@ Make it feel personal and not like spam."""
                     "button[class*='_acan'][class*='_acao']"  # Instagram button classes
                 ]
                 
-                self.log(f"🔍 Looking for Message button on @{username} profile...", "DEBUG")
-                
-                for i, selector in enumerate(message_button_selectors):
+                for selector in message_button_selectors:
                     try:
-                        self.log(f"🔍 Trying message button selector {i+1}: {selector}", "DEBUG")
                         element = await page.wait_for_selector(selector, timeout=5000)
                         if element:
                             await element.click()
                             message_clicked = True
                             await asyncio.sleep(2)
-                            self.log(f"✅ Clicked message button for @{username} with selector {i+1}", "DEBUG")
+                            self.log(f"Clicked message button for @{username}")
                             break
-                    except Exception as selector_error:
-                        self.log(f"❌ Message button selector {i+1} failed: {str(selector_error)[:100]}", "DEBUG")
+                    except:
                         continue
                 
                 if not message_clicked:
                     if attempt < max_retries - 1:
-                        self.log(f"⚠️ Message button not found for @{username}, retrying in 3 seconds...", "WARNING")
+                        self.log(f"Message button not found for @{username}, retrying in 3 seconds...")
                         await asyncio.sleep(3)
                         continue
-                    self.log(f"❌ Message button not found for @{username} after all attempts", "ERROR")
                     return "MESSAGE_BUTTON_NOT_FOUND"
                 
                 # Wait for DM interface to load
-                self.log(f"⏳ Waiting for DM interface to load for @{username}...", "DEBUG")
                 await asyncio.sleep(3)
                 
                 # Find message input with updated selectors based on the provided element
@@ -1496,36 +1181,33 @@ Make it feel personal and not like spam."""
                 ]
                 
                 message_input = None
-                self.log(f"🔍 Looking for message input field for @{username}...", "DEBUG")
-                
                 for i, selector in enumerate(input_selectors):
                     try:
-                        self.log(f"🔍 Trying message input selector {i+1}: {selector}", "DEBUG")
+                        self.log(f"Trying message input selector {i+1}: {selector}")
                         message_input = await page.wait_for_selector(selector, timeout=5000)
                         if message_input:
                             # Verify the element is visible and interactable
                             is_visible = await message_input.is_visible()
                             if is_visible:
-                                self.log(f"✅ Found message input field for @{username} with selector {i+1}", "DEBUG")
+                                self.log(f"Found message input field with selector {i+1}")
                                 break
                             else:
-                                self.log(f"⚠️ Message input found but not visible with selector {i+1}", "DEBUG")
+                                self.log(f"Message input found but not visible with selector {i+1}")
                                 message_input = None
                     except Exception as e:
-                        self.log(f"❌ Message input selector {i+1} failed: {str(e)[:100]}", "DEBUG")
+                        self.log(f"Selector {i+1} failed: {e}")
                         continue
                 
                 if not message_input:
                     if attempt < max_retries - 1:
-                        self.log(f"⚠️ Message input field not found for @{username}, retrying in 5 seconds...", "WARNING")
+                        self.log(f"Message input field not found for @{username}, retrying in 5 seconds...")
                         await asyncio.sleep(5)
                         continue
-                    self.log(f"❌ Message input field not found for @{username} after all attempts", "ERROR")
                     return "INPUT_FIELD_ERROR"
                 
                 # Type and send message
                 try:
-                    self.log(f"⌨️ Typing message to @{username}...", "INFO")
+                    self.log(f"Typing message to @{username}")
                     await message_input.click()
                     await asyncio.sleep(0.5)
                     
@@ -1535,72 +1217,31 @@ Make it feel personal and not like spam."""
                     await message_input.press("Delete")
                     await asyncio.sleep(0.3)
                     
-                    # Type the message with human-like behavior
-                    self.log(f"✏️ Typing message to @{username} with human-like behavior...", "DEBUG")
-                    await self.typing_behavior.human_type(
-                        page, 
-                        'textarea[placeholder*="Message"], div[contenteditable="true"]', 
-                        message,
-                        self.log
-                    )
-                    self.log(f"✅ Message typed to @{username} with human-like timing", "DEBUG")
+                    # Type the message
+                    await message_input.type(message, delay=50)
+                    await asyncio.sleep(random.uniform(1, 2))
                     
-                    # Human-like pause before sending
-                    pause_time = random.uniform(1, 3)
-                    self.log(f"⏳ Human-like pause {pause_time:.1f}s before sending message to @{username}...", "DEBUG")
-                    await asyncio.sleep(pause_time)
-                    
-                    # Send the message with human-like behavior
-                    self.log(f"📤 Sending message with human-like behavior...", "DEBUG")
-                    
-                    # Sometimes click send button instead of pressing Enter (more human-like)
-                    if random.random() < 0.7:  # 70% chance to use Enter key
-                        await page.keyboard.press("Enter")
-                        self.log(f"⌨️ Sent message using Enter key", "DEBUG")
-                    else:
-                        # Try to find and click send button
-                        try:
-                            send_selectors = [
-                                'button[type="submit"]',
-                                'button:has-text("Send")',
-                                'div[role="button"]:has-text("Send")',
-                                'svg[aria-label="Send"]'
-                            ]
-                            for selector in send_selectors:
-                                try:
-                                    await self.typing_behavior.human_click(page, selector, self.log)
-                                    self.log(f"🖱️ Sent message using send button", "DEBUG")
-                                    break
-                                except:
-                                    continue
-                        except:
-                            # Fallback to Enter key
-                            await page.keyboard.press("Enter")
-                            self.log(f"⌨️ Sent message using Enter key (fallback)", "DEBUG")
-                    
+                    # Send the message
+                    await message_input.press("Enter")
                     await asyncio.sleep(2)
                     
-                    self.log(f"✅ Message successfully sent to @{username}!", "SUCCESS")
-                    self.log(f"📊 Message stats: {len(message)} characters, {len(message.split())} words", "INFO")
+                    self.log(f"Message sent to @{username}")
                     return True
                     
                 except Exception as e:
-                    self.log(f"❌ Error typing/sending message to @{username}: {str(e)}", "ERROR")
+                    self.log(f"Error typing/sending message to @{username}: {e}")
                     if attempt < max_retries - 1:
                         await asyncio.sleep(3)
                         continue
                     return "MESSAGE_SEND_ERROR"
                 
             except Exception as e:
-                self.log(f"❌ DM send error for @{username} (attempt {attempt + 1}): {str(e)}", "ERROR")
+                self.log(f"DM send error for @{username} (attempt {attempt + 1}): {e}", "ERROR")
                 if attempt < max_retries - 1:
-                    retry_delay = random.uniform(3, 5)
-                    self.log(f"⏳ Waiting {retry_delay:.1f}s before retry...", "DEBUG")
-                    await asyncio.sleep(retry_delay)
+                    await asyncio.sleep(3)
                     continue
-                return f"GENERAL_ERROR: {str(e)[:100]}"
+                return f"GENERAL_ERROR: {e}"
         
-        self.log(f"❌ Max retries ({max_retries}) exceeded for @{username}", "ERROR")
         return "MAX_RETRIES_EXCEEDED"
     
     async def check_dm_responses(self, page, account_username):
@@ -1809,27 +1450,8 @@ Make it feel personal and not like spam."""
                 
                 target_username = target_username.strip()
                 
-                self.log(f"[{username}] 🎯 Processing target {processed_count}/{len(users_to_process)}: @{target_username}", "INFO")
-                
-                # Log target user details for context
-                first_name = user.get('first_name', 'N/A')
-                city = user.get('city', 'N/A') 
-                bio = user.get('bio', 'N/A')
-                self.log(f"[{username}] 👤 Target details - Name: {first_name}, City: {city}, Bio: {bio[:50]}{'...' if len(bio) > 50 else ''}", "INFO")
-                
-                # Generate personalized message with enhanced logging
-                self.log(f"[{username}] 🎨 Generating personalized message for @{target_username}...", "INFO")
+                # Generate personalized message
                 message = self.generate_message(user, prompt_template)
-                
-                # Log message generation result
-                message_stats = {
-                    'length': len(message),
-                    'words': len(message.split()),
-                    'has_name': first_name.lower() in message.lower(),
-                    'has_location': city.lower() in message.lower() if city != 'N/A' else False
-                }
-                self.log(f"[{username}] 📝 Generated message stats: {message_stats['length']} chars, {message_stats['words']} words, Name: {message_stats['has_name']}, Location: {message_stats['has_location']}", "INFO")
-                self.log(f"[{username}] 💬 Message preview: {message[:100]}{'...' if len(message) > 100 else ''}", "INFO")
                 
                 # Send DM
                 result = await self.send_dm(page, target_username, message)
@@ -1915,11 +1537,12 @@ async def run_dm_automation(
     custom_prompt=None,
     dms_per_account=30,
     log_callback=None,
-    stop_callback=None
+    stop_callback=None,
+    enable_ai=False  # Default to False to avoid OpenAI issues
 ):
     """Main function to run DM automation"""
     
-    engine = DMAutomationEngine(log_callback, stop_callback)
+    engine = DMAutomationEngine(log_callback, stop_callback, enable_ai)
     
     try:
         engine.log("=== Instagram DM Automation Started ===")
@@ -1931,29 +1554,12 @@ async def run_dm_automation(
         engine.log("✅ Account should have been logged in recently from this IP/device")
         engine.log("")
         
-        # Test spintax functionality
-        engine.log("🧪 Testing Enhanced Message Generation System:")
-        test_user = {
-            'username': 'testuser',
-            'first_name': 'John',
-            'city': 'New York',
-            'bio': 'Digital marketing consultant'
-        }
-        
-        engine.log("📝 Generating 3 sample messages to demonstrate variation:")
-        for i in range(3):
-            sample_message = engine.template_engine.generate_enhanced_message(test_user)
-            engine.log(f"   Sample {i+1}: {sample_message}")
-        engine.log("")
-        
-        # Test spintax parser directly
-        test_spintax = "{Hello|Hi|Hey} {friend|buddy|there}! This is a {test|sample|demo} of {spintax|variation|randomization}."
-        parsed_result = SpintaxParser.parse(test_spintax)
-        engine.log(f"🎲 Spintax test - Input: {test_spintax}")
-        engine.log(f"🎲 Spintax test - Output: {parsed_result}")
-        engine.log("")
-        
-        engine.log("✅ Using enhanced template-based message generation (OpenAI removed for simplicity)", "INFO")
+        # Setup AI client (optional - script continues without it)
+        ai_client_ready = engine.setup_openai_client()
+        if ai_client_ready:
+            engine.log("✅ AI client ready for message generation", "INFO")
+        else:
+            engine.log("⚠️ AI client setup failed - continuing with manual templates", "WARNING")
         
         # Load data
         engine.log("Loading bot accounts...")

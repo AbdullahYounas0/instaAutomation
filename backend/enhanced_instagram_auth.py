@@ -64,6 +64,14 @@ class EnhancedInstagramAuth:
             logger.log(getattr(logging, level, logging.INFO), f"[{username}] {message}")
         
         try:
+            # 🛡️ 3-LAYER FACEBOOK REDIRECT PREVENTION SYSTEM ACTIVATED
+            log("=" * 60)
+            log("🛡️ ACTIVATING 3-LAYER FACEBOOK REDIRECT PREVENTION")
+            log("   Layer 1: 🧹 Clean Browser Profile (Remove FB traces)")
+            log("   Layer 2: 🎯 Force Instagram URLs (Direct navigation)")  
+            log("   Layer 3: 🚫 Network Blocking (Block FB domains)")
+            log("=" * 60)
+            
             # Step 1: Get and set up proxy
             proxy_info = await self._setup_proxy_for_account(context, username, log)
             info['proxy_used'] = proxy_info
@@ -78,11 +86,119 @@ class EnhancedInstagramAuth:
                 page = await context.new_page()
                 log("✅ Created new browser page")
             
-            # Block Facebook domains to prevent redirects
-            await page.route("**facebook.com**", lambda route: route.abort())
-            await page.route("**fb.com**", lambda route: route.abort())
-            await page.route("**fbcdn.net**", lambda route: route.abort())
-            log("🚫 Blocked Facebook domains to prevent redirects")
+            # LAYER 3: 🚫 COMPREHENSIVE FACEBOOK DOMAIN BLOCKING + REQUEST INTERCEPTION
+            log("🛡️ Applying 3-Layer Facebook Redirect Prevention...")
+            
+            # Block ALL Facebook/Meta domains and subdomains
+            facebook_domains = [
+                "**facebook.com**", "**fb.com**", "**meta.com**", "**facebook.net**", 
+                "**fbcdn.net**", "**fbcdn.com**", "**facebook-hardware.com**",
+                "**accountkit.com**", "**facebookcorewwwi.onion**", "**m.facebook.com**",
+                "**business.facebook.com**", "**developers.facebook.com**", "**fbwat.ch**",
+                "**messenger.com**", "**instagram.com/oauth**", "**accounts.facebook.com**"
+            ]
+            
+            for domain in facebook_domains:
+                await page.route(domain, lambda route: route.abort())
+            
+            # Advanced request interception - block redirects before they happen
+            async def intercept_requests(route):
+                url = route.request.url.lower()
+                
+                # Block any Facebook-related requests
+                if any(fb_domain in url for fb_domain in ['facebook.com', 'fb.com', 'meta.com', 'accounts.facebook']):
+                    log(f"🚫 Blocked Facebook redirect attempt: {url}")
+                    await route.abort()
+                    return
+                
+                # Force Instagram login URLs instead of main page
+                if url == "https://www.instagram.com/" or url == "https://instagram.com/":
+                    log("🔄 Intercepted Instagram main page - redirecting to direct login")
+                    await route.fulfill(
+                        status=302,
+                        headers={"Location": "https://www.instagram.com/accounts/login/?force_classic_login"}
+                    )
+                    return
+                
+                # Allow legitimate Instagram requests
+                await route.continue_()
+            
+            await page.route("**", intercept_requests)
+            log("✅ Applied comprehensive Facebook blocking + request interception")
+            
+            # LAYER 1: 🧹 CLEAN BROWSER PROFILE - Remove all Facebook traces
+            log("🧹 Cleaning browser profile from Facebook traces...")
+            
+            # Clear ALL storage data that might contain Facebook traces (with error handling)
+            try:
+                result = await page.evaluate("""
+                    (function() {
+                        try {
+                            // Clear localStorage safely
+                            if (window.localStorage && typeof window.localStorage.getItem === 'function') {
+                                const keysToRemove = [];
+                                try {
+                                    for (let i = 0; i < localStorage.length; i++) {
+                                        const key = localStorage.key(i);
+                                        if (key && (key.includes('facebook') || key.includes('fb') || key.includes('meta'))) {
+                                            keysToRemove.push(key);
+                                        }
+                                    }
+                                    keysToRemove.forEach(key => {
+                                        try { localStorage.removeItem(key); } catch(e) { /* ignore */ }
+                                    });
+                                } catch(e) { /* localStorage access denied, skip */ }
+                            }
+                            
+                            // Clear sessionStorage safely
+                            if (window.sessionStorage && typeof window.sessionStorage.getItem === 'function') {
+                                const sessionKeysToRemove = [];
+                                try {
+                                    for (let i = 0; i < sessionStorage.length; i++) {
+                                        const key = sessionStorage.key(i);
+                                        if (key && (key.includes('facebook') || key.includes('fb') || key.includes('meta'))) {
+                                            sessionKeysToRemove.push(key);
+                                        }
+                                    }
+                                    sessionKeysToRemove.forEach(key => {
+                                        try { sessionStorage.removeItem(key); } catch(e) { /* ignore */ }
+                                    });
+                                } catch(e) { /* sessionStorage access denied, skip */ }
+                            }
+                            
+                            // Clear any Facebook-related IndexedDB safely
+                            if (window.indexedDB && typeof window.indexedDB.deleteDatabase === 'function') {
+                                try {
+                                    indexedDB.deleteDatabase('facebook');
+                                    indexedDB.deleteDatabase('fb'); 
+                                    indexedDB.deleteDatabase('meta');
+                                } catch(e) { /* ignore IndexedDB errors */ }
+                            }
+                            
+                            return 'success';
+                        } catch(e) {
+                            return 'error: ' + e.message;
+                        }
+                    })();
+                """)
+                log("✅ Browser storage cleaned successfully")
+            except Exception as e:
+                log(f"⚠️ Browser storage cleaning skipped (page not ready): {str(e)[:100]}")
+                # Continue anyway - this is not critical for authentication
+            
+            # Clear Facebook cookies specifically
+            all_cookies = await context.cookies()
+            facebook_cookies = [
+                cookie for cookie in all_cookies 
+                if any(fb_domain in cookie.get('domain', '') for fb_domain in ['facebook.com', 'fb.com', 'meta.com'])
+            ]
+            
+            if facebook_cookies:
+                log(f"🧹 Removing {len(facebook_cookies)} Facebook cookies")
+                for cookie in facebook_cookies:
+                    await context.clear_cookies(domain=cookie['domain'])
+            
+            log("✅ Browser profile cleaned of Facebook traces")
             
             # Set user agent and other headers to appear more human
             await page.set_extra_http_headers({
@@ -299,46 +415,68 @@ class EnhancedInstagramAuth:
             
             cookies = cookie_data['cookies']
             
-            # Go to Instagram homepage first with redirect protection
-            log("🌐 Navigating to Instagram homepage...")
+            # IMPORTANT: Load cookies BEFORE navigating to avoid Facebook redirects
+            log("🍪 Loading cookies before navigation...")
+            await page.context.add_cookies(cookies)
+            log(f"✅ Pre-loaded {len(cookies)} cookies")
             
-            # Multiple attempts to avoid Facebook redirects
-            for attempt in range(3):
-                await page.goto("about:blank")
-                await self._human_delay(1000, 2000)
-                
-                await page.goto("https://www.instagram.com/", wait_until='domcontentloaded', timeout=45000)
-                
-                current_url = page.url.lower()
-                if "facebook.com" in current_url:
-                    log(f"⚠️ Facebook redirect detected on cookie auth attempt {attempt + 1}")
-                    if attempt < 2:
-                        await self._human_delay(3000, 5000)
+            # LAYER 2: 🎯 FORCE INSTAGRAM URLS - Direct navigation with fallbacks
+            log("🌐 Using forced Instagram URLs to prevent redirects...")
+            
+            # Multiple Instagram URLs with anti-redirect parameters
+            instagram_urls = [
+                "https://www.instagram.com/?hl=en",                                    # Main with language
+                "https://www.instagram.com/",                                          # Standard main
+                "https://www.instagram.com/?force_classic_login",                      # Force classic
+                "https://www.instagram.com/?variant=following"                         # Following variant
+            ]
+            
+            # Try each URL until successful navigation without Facebook redirect
+            navigation_success = False
+            for attempt, url in enumerate(instagram_urls, 1):
+                try:
+                    log(f"🎯 Navigation attempt {attempt}/{len(instagram_urls)}: {url}")
+                    
+                    await page.goto("about:blank")
+                    await self._human_delay(1000, 2000)
+                    
+                    # Navigate with cookies already loaded
+                    await page.goto(url, wait_until='domcontentloaded', timeout=45000)
+                    await self._human_delay(2000, 3000)
+                    
+                    current_url = page.url.lower()
+                    log(f"📍 Reached URL: {current_url}")
+                    
+                    if "facebook.com" in current_url or "fb.com" in current_url:
+                        log(f"⚠️ Facebook redirect on URL {attempt} - trying next...")
                         continue
+                    elif "instagram.com" in current_url:
+                        log(f"✅ Successfully reached Instagram with URL {attempt}")
+                        navigation_success = True
+                        break
                     else:
-                        log("⚠️ Persistent Facebook redirect during cookie auth")
-                        return False
-                elif "instagram.com" in current_url:
-                    log("✅ Successfully reached Instagram for cookie auth")
-                    break
-                else:
-                    log(f"⚠️ Unexpected URL during cookie auth: {current_url}")
-                    return False
+                        log(f"⚠️ Unexpected URL on attempt {attempt}: {current_url}")
+                        continue
+                        
+                except Exception as e:
+                    log(f"⚠️ URL attempt {attempt} failed: {str(e)[:100]}")
+                    continue
+            
+            if not navigation_success:
+                log("❌ All Instagram URLs failed - Facebook redirect persistent")
+                return False
             
             await self._human_delay(2000, 4000)
             
-            # Add cookies to the page
-            await page.context.add_cookies(cookies)
-            log(f"🍪 Loaded {len(cookies)} cookies")
-            
-            # Navigate to Instagram again to use cookies
-            log("🔄 Reloading page with cookies...")
+            # Cookies are already loaded, no need to reload them
+            # Navigate again to use cookies (this refresh ensures cookies are applied)
+            log("🔄 Refreshing page to apply cookies...")
             await page.goto("https://www.instagram.com/", wait_until='domcontentloaded', timeout=45000)
             
             # Check for Facebook redirect again
             current_url = page.url
             if "facebook.com" in current_url.lower():
-                log("⚠️ Facebook redirect detected after adding cookies")
+                log("⚠️ Facebook redirect detected after applying cookies")
                 return False
             
             await self._human_delay(3000, 5000)
@@ -373,34 +511,78 @@ class EnhancedInstagramAuth:
             # Navigate to login page with enhanced error handling and proxy fallback
             log("🌐 Navigating to Instagram login page...")
             
+            # LAYER 2: 🎯 FORCE INSTAGRAM LOGIN URLS - Enhanced direct navigation
+            log("🌐 Applying forced Instagram login URL strategy...")
+            
+            # Multiple specialized Instagram login URLs to prevent Facebook redirects
+            login_urls = [
+                "https://www.instagram.com/accounts/login/?force_classic_login=1&hl=en",  # Force classic with language
+                "https://www.instagram.com/accounts/login/?next=/&source=logged_out_homepage", # Homepage source
+                "https://www.instagram.com/accounts/login/?hl=en&source=auth_switcher_button", # Auth switcher
+                "https://www.instagram.com/accounts/login/?next=%2F",                        # Standard login
+                "https://www.instagram.com/accounts/login/",                                 # Fallback basic
+            ]
+            
             # First, ensure we're starting fresh and not getting redirected
-            max_redirect_attempts = 7  # Increased attempts
+            max_redirect_attempts = len(login_urls) * 2  # Try each URL twice
             navigation_success = False
             
             for attempt in range(max_redirect_attempts):
+                url_index = attempt % len(login_urls)
+                url_attempt = (attempt // len(login_urls)) + 1
+                current_login_url = login_urls[url_index]
+                
                 try:
                     log(f"🔄 Navigation attempt {attempt + 1}/{max_redirect_attempts}")
+                    log(f"🎯 Using login URL {url_index + 1} (attempt {url_attempt}): {current_login_url}")
                     
-                    # Clear any existing navigation
+                    # LAYER 1: Clear all cookies and storage before fresh login
                     await page.goto("about:blank")
                     await self._human_delay(1000, 2000)
                     
-                    # Use different navigation strategies based on attempt
-                    if attempt <= 2:
-                        # First attempts: Direct login page
-                        await page.goto("https://www.instagram.com/accounts/login/", 
-                                      wait_until='domcontentloaded', timeout=45000)  # Reduced timeout
-                    elif attempt <= 4:
-                        # Middle attempts: Main page first, then login
-                        await page.goto("https://www.instagram.com/", 
-                                      wait_until='domcontentloaded', timeout=45000)
-                        await self._human_delay(2000, 3000)
-                        await page.goto("https://www.instagram.com/accounts/login/", 
-                                      wait_until='domcontentloaded', timeout=30000)
-                    else:
-                        # Last attempts: Try with networkidle
-                        await page.goto("https://www.instagram.com/accounts/login/", 
-                                      wait_until='networkidle', timeout=30000)
+                    # Clear ALL cookies that might cause redirects (enhanced cleaning)
+                    await page.context.clear_cookies()
+                    try:
+                        result = await page.evaluate("""
+                            (function() {
+                                try {
+                                    // Enhanced storage clearing with error handling
+                                    if (window.localStorage && typeof window.localStorage.clear === 'function') {
+                                        try { localStorage.clear(); } catch(e) { /* access denied, skip */ }
+                                    }
+                                    if (window.sessionStorage && typeof window.sessionStorage.clear === 'function') {
+                                        try { sessionStorage.clear(); } catch(e) { /* access denied, skip */ }
+                                    }
+                                    
+                                    // Clear any cached redirect preferences safely
+                                    try {
+                                        document.cookie.split(";").forEach(function(c) { 
+                                            document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+                                        });
+                                    } catch(e) { /* cookie clearing failed, skip */ }
+                                    
+                                    return 'storage_cleared';
+                                } catch(e) {
+                                    return 'storage_error: ' + e.message;
+                                }
+                            })();
+                        """)
+                    except Exception as e:
+                        log(f"⚠️ Storage clearing skipped (page not ready): {str(e)[:60]}")
+                        # Continue anyway - cookie clearing is more important
+                    
+                    log("🧹 Cleared all cookies and storage for fresh login attempt")
+                    
+                    # Navigate to specific login URL with reduced timeout for faster failover
+                    try:
+                        await page.goto(current_login_url, wait_until='domcontentloaded', timeout=30000)  # Reduced from 45000
+                    except Exception as nav_error:
+                        if "timeout" in str(nav_error).lower():
+                            log(f"⏰ Navigation timeout after 30s - proxy/network issue with URL {url_index + 1}")
+                            # Try next URL immediately on timeout
+                            continue
+                        else:
+                            raise  # Re-raise non-timeout errors
                     
                     await self._human_delay(2000, 3000)
                     
@@ -408,47 +590,94 @@ class EnhancedInstagramAuth:
                     current_url = page.url.lower()
                     log(f"📍 Current URL after navigation: {current_url}")
                     
-                    if "facebook.com" in current_url:
-                        log(f"⚠️ Facebook redirect detected on attempt {attempt + 1}")
+                    if "facebook.com" in current_url or "fb.com" in current_url:
+                        log(f"⚠️ Facebook redirect on URL {url_index + 1}, attempt {url_attempt}")
+                        
                         if attempt < max_redirect_attempts - 1:
-                            log("🔄 Retrying with different approach...")
+                            log("🔄 Trying next URL strategy...")
+                            await self._human_delay(3000, 5000)  # Progressive delay
                             continue
                         else:
-                            log("❌ Persistent Facebook redirect - likely proxy/network issue")
-                            log("🔄 Checking if account may be linked to Facebook")
+                            log("❌ All Instagram login URLs redirected to Facebook")
+                            log("� Account appears to be linked to Facebook - requires manual intervention")
                             return False, totp_secret
                     
-                    elif "instagram.com" in current_url:
-                        log("✅ Successfully reached Instagram")
+                    elif "instagram.com" in current_url and "login" in current_url:
+                        log(f"✅ Successfully reached Instagram login page with URL {url_index + 1}")
                         navigation_success = True
                         break
-                    else:
-                        log(f"⚠️ Unexpected URL: {current_url}")
-                        if attempt < max_redirect_attempts - 1:
-                            continue
+                    
+                    elif "instagram.com" in current_url:
+                        # We're on Instagram but not login page - check if already logged in
+                        log("📍 Reached Instagram main page - checking login status")
+                        if await self._is_logged_in(page):
+                            log("✅ Already logged in via existing session")
+                            return True, totp_secret
                         else:
-                            log("❌ Failed to reach Instagram after all attempts")
-                            return False, totp_secret
-                            
+                            # Not logged in but not on login page - redirect
+                            log("🔄 Not on login page, continuing to next attempt")
+                            continue
+                    
+                    else:
+                        log(f"⚠️ Unexpected URL with login URL {url_index + 1}: {current_url}")
+                        continue
+                        
                 except Exception as e:
                     error_msg = str(e)
                     log(f"⚠️ Navigation attempt {attempt + 1} failed: {error_msg}")
                     
                     # Check for specific timeout errors and provide better feedback
                     if "timeout" in error_msg.lower():
-                        if "60000ms" in error_msg or "45000ms" in error_msg:
-                            log("⏰ Page load timeout - possible network/proxy issue")
-                        elif "30000ms" in error_msg:
-                            log("⏰ Network idle timeout - trying faster approach")
+                        log("⏰ Navigation timeout - possible proxy/network issue")
                     
                     if attempt == max_redirect_attempts - 1:
-                        log("❌ All navigation attempts failed - possible proxy/network issue")
-                        log("💡 This account may need proxy reassignment or manual verification")
+                        log("❌ All navigation attempts exhausted")
+                        log("💡 Account may need proxy reassignment or manual verification")
                         return False, totp_secret
                     
                     # Progressive delay increases
-                    delay_multiplier = min(attempt + 1, 3)
+                    delay_multiplier = min((attempt // len(login_urls)) + 1, 4)
                     await self._human_delay(2000 * delay_multiplier, 4000 * delay_multiplier)
+            
+            if not navigation_success:
+                log("❌ Failed to establish connection to Instagram login page")
+                log("🔧 All specialized login URLs failed - account requires manual intervention")
+                return False, totp_secret
+            
+            log("✅ Successfully navigated to Instagram login page without Facebook redirect!")
+            
+            # LAYER 1: 🧹 ADDITIONAL BROWSER CLEANUP after reaching login page
+            try:
+                result = await page.evaluate("""
+                    (function() {
+                        try {
+                            // Final cleanup to ensure no Facebook integration remnants
+                            if (window.localStorage && typeof window.localStorage.removeItem === 'function') {
+                                try {
+                                    // Remove any Facebook integration flags
+                                    localStorage.removeItem('instagram_facebook_integration');
+                                    localStorage.removeItem('fb_login_preference');
+                                    localStorage.removeItem('meta_account_linked');
+                                } catch(e) { /* localStorage access denied, skip */ }
+                            }
+                            
+                            // Clear any Facebook-related global variables safely
+                            try {
+                                delete window.FB;
+                                delete window.facebook;
+                                delete window.__facebook;
+                            } catch(e) { /* ignore deletion errors */ }
+                            
+                            return 'cleanup_success';
+                        } catch(e) {
+                            return 'cleanup_error: ' + e.message;
+                        }
+                    })();
+                """)
+                log("🧹 Applied final cleanup for Instagram-only login")
+            except Exception as e:
+                log(f"⚠️ Final cleanup skipped (not critical): {str(e)[:80]}")
+                # Continue anyway - this is just additional cleanup
             
             if not navigation_success:
                 log("❌ Failed to establish connection to Instagram")

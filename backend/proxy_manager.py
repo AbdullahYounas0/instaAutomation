@@ -11,26 +11,26 @@ from datetime import datetime
 
 # Proxy list - centralized proxy configuration
 PROXIES = [
-    "156.237.58.177:8075:silwfmmt:9mnui1h717nw",
-    "72.1.138.220:6111:silwfmmt:9mnui1h717nw",
-    "136.143.251.205:7404:silwfmmt:9mnui1h717nw",
-    "163.123.200.142:6427:silwfmmt:9mnui1h717nw",
-    "208.66.73.58:5069:silwfmmt:9mnui1h717nw",
-    "46.203.3.115:8114:silwfmmt:9mnui1h717nw",
-    "66.43.6.242:8113:silwfmmt:9mnui1h717nw",
-    "69.30.75.24:6081:silwfmmt:9mnui1h717nw",
-    "72.1.156.235:8125:silwfmmt:9mnui1h717nw",
-    "156.237.54.82:7977:silwfmmt:9mnui1h717nw",
-    "45.56.157.181:6404:silwfmmt:9mnui1h717nw",
-    "192.53.68.50:5108:silwfmmt:9mnui1h717nw",
-    "208.72.211.251:7036:silwfmmt:9mnui1h717nw",
     "207.228.28.217:7866:silwfmmt:9mnui1h717nw",
     "156.237.42.124:8023:silwfmmt:9mnui1h717nw",
     "46.203.104.5:7502:silwfmmt:9mnui1h717nw",
     "154.194.25.13:5031:silwfmmt:9mnui1h717nw",
     "207.228.32.142:6759:silwfmmt:9mnui1h717nw",
     "46.203.54.224:8222:silwfmmt:9mnui1h717nw",
-    "207.228.14.23:5315:silwfmmt:9mnui1h717nw"
+    "207.228.14.23:5315:silwfmmt:9mnui1h717nw",
+    "69.30.79.150:5203:silwfmmt:9mnui1h717nw",
+    "69.30.79.15:5068:silwfmmt:9mnui1h717nw",
+    "69.30.79.149:5202:silwfmmt:9mnui1h717nw",
+    "46.203.54.223:8221:silwfmmt:9mnui1h717nw",
+    "69.30.79.83:5136:silwfmmt:9mnui1h717nw",
+    "46.203.54.10:8008:silwfmmt:9mnui1h717nw",
+    "46.203.104.207:7704:silwfmmt:9mnui1h717nw",
+    "69.30.79.107:5160:silwfmmt:9mnui1h717nw",
+    "69.30.79.54:5107:silwfmmt:9mnui1h717nw",
+    "69.30.79.227:5280:silwfmmt:9mnui1h717nw",
+    "69.30.79.201:5254:silwfmmt:9mnui1h717nw",
+    "69.30.79.191:5244:silwfmmt:9mnui1h717nw",
+    "69.30.79.79:5132:silwfmmt:9mnui1h717nw"
 ]
 
 PROXY_ASSIGNMENTS_FILE = 'proxy_assignments.json'
@@ -69,8 +69,45 @@ class ProxyManager:
         return PROXIES.copy()
     
     def parse_proxy(self, proxy_string: str) -> Optional[Dict]:
-        """Parse proxy string into components"""
+        """Parse proxy string into components - handles both URL and colon-separated formats"""
         try:
+            # Handle URL format without protocol: username:password@host:port
+            if '@' in proxy_string and not proxy_string.startswith('http'):
+                credentials, host_port = proxy_string.split('@', 1)
+                username, password = credentials.split(':', 1)
+                host, port = host_port.split(':', 1)
+                
+                return {
+                    'server': f'http://{host}:{port}',  # Add http:// for server URL
+                    'host': host,
+                    'port': port,
+                    'username': username,
+                    'password': password
+                }
+            
+            # Handle new URL format: https://username:password@host:port
+            if proxy_string.startswith('https://') or proxy_string.startswith('http://'):
+                # Remove protocol
+                if proxy_string.startswith('https://'):
+                    url_part = proxy_string[8:]  # Remove 'https://'
+                else:
+                    url_part = proxy_string[7:]   # Remove 'http://'
+                
+                # Split at @ to separate credentials from host:port
+                if '@' in url_part:
+                    credentials, host_port = url_part.split('@', 1)
+                    username, password = credentials.split(':', 1)
+                    host, port = host_port.split(':', 1)
+                    
+                    return {
+                        'server': f'http://{host}:{port}',  # Use http:// for server
+                        'host': host,
+                        'port': port,
+                        'username': username,
+                        'password': password
+                    }
+            
+            # Handle old colon-separated format: host:port:username:password
             parts = proxy_string.split(':')
             if len(parts) == 4:
                 return {

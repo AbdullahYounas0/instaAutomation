@@ -1274,7 +1274,7 @@ import datetime
 import traceback
 from instagram_accounts import get_account_details
 from proxy_manager import proxy_manager
-from enhanced_instagram_auth import enhanced_auth
+from simple_instagram_auth_enhanced import enhanced_simple_auth, HumanLikeTyping
 from instagram_cookie_manager import cookie_manager
 from stealth_browser_manager import StealthBrowserManager, ensure_proxy_assignment
 
@@ -1287,6 +1287,7 @@ class InstagramDailyPostAutomation:
         self.supported_video_formats = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v']
         self.media_file = None
         self.is_video = False
+        self.typing_behavior = HumanLikeTyping()  # Initialize human-like typing
         
     def default_log(self, message, level="INFO"):
         """Default logging function with timestamp"""
@@ -1475,11 +1476,21 @@ class InstagramDailyPostAutomation:
             def auth_log_callback(message):
                 self.log(f"[Account {account_number}] {message}")
             
-            # Use enhanced authentication with cookies and proxy
-            success, auth_info = await enhanced_auth.authenticate_with_cookies_and_proxy(
+            # Get account details including TOTP secret
+            account_data = get_account_details(username)
+            totp_secret = account_data.get('totp_secret') if account_data else None
+            
+            # Get proxy info
+            proxy_string = proxy_manager.get_account_proxy(username)
+            proxy_info = proxy_manager.parse_proxy(proxy_string) if proxy_string else None
+            
+            # Use enhanced simple authentication with human-like behavior
+            success, auth_info = await enhanced_simple_auth.authenticate_with_human_behavior(
                 context=context,
                 username=username,
                 password=password,
+                totp_secret=totp_secret,
+                proxy_info=proxy_info,
                 log_callback=auth_log_callback
             )
             
@@ -2411,12 +2422,17 @@ class InstagramDailyPostAutomation:
             # Wait for caption textarea
             caption_area = await page.wait_for_selector('textarea[aria-label*="caption"]', timeout=10000)
             
-            # Clear existing text and add new caption
-            await caption_area.click()
+            # Clear existing text and add new caption with human-like behavior
+            await self.typing_behavior.human_click(page, 'textarea[aria-label*="caption"]', self.log)
             await caption_area.fill('')
-            await caption_area.type(caption, delay=50)
+            await self.typing_behavior.human_type(
+                page, 
+                'textarea[aria-label*="caption"]', 
+                caption,
+                self.log
+            )
             
-            self.log("✅ Caption added successfully")
+            self.log("✅ Caption added successfully with human-like typing")
             return True
             
         except Exception as e:
